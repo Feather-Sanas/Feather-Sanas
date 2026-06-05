@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sanas — Speak your way. | Meet Sani, your Speech AI consultant</title>
+  <meta name="description" content="Sanas changes how a voice sounds in real time so agents and customers understand each other. Meet Sani, the Sanas Speech AI consultant." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 50 A25 25 0 0 1 75 25 L75 50 Z'/%3E%3Cpath d='M50 50 A25 25 0 0 0 25 75 L25 50 Z'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ============ Marketing surface (the sanas.ai page Sani lives on) ============ -->
+  <div class="site">
+    <nav class="site-nav">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 100 100" fill="#000" aria-hidden="true">
+          <path d="M50 50 A25 25 0 0 1 75 25 L75 50 Z"/><path d="M50 50 A25 25 0 0 0 25 75 L25 50 Z"/>
+        </svg>
+        sanas
+      </div>
+      <div class="nav-links">
+        <a href="#products">Products</a>
+        <a href="#science">Science</a>
+        <a href="#trust">Trust</a>
+        <a href="#docs">Developers</a>
+        <button class="btn-demo" data-open-san>Book a demo</button>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <h1>Sounds like <span class="roll" id="rollWord">Magic</span></h1>
+        <p class="lede">Sanas changes how a voice sounds in real time — so agents and customers understand each other. We reconstruct the voice signal, we don’t filter it. Speak your way.</p>
+        <div class="hero-cta">
+          <button class="btn-demo" data-open-playground>Open the Playground</button>
+          <button class="btn-ghost" data-open-san><span class="play" aria-hidden="true"></span> Play a before / after</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="features" id="products">
+      <div class="feature-card">
+        <div><h3>Accent Translation</h3><p>480+ dialects into US / UK / AU output, in real time, sub-200ms.</p></div>
+        <div class="eq" aria-hidden="true"><span style="animation-delay:0s"></span><span style="animation-delay:.1s"></span><span style="animation-delay:.2s"></span><span style="animation-delay:.3s"></span><span style="animation-delay:.15s"></span><span style="animation-delay:.25s"></span><span style="animation-delay:.05s"></span></div>
+      </div>
+      <div class="feature-card">
+        <div><h3>Speech Enhancement</h3><p>Isolates the foreground voice from ambient noise. Reconstructed at 16kHz+.</p></div>
+        <div class="eq" aria-hidden="true"><span style="animation-delay:.2s"></span><span style="animation-delay:0s"></span><span style="animation-delay:.3s"></span><span style="animation-delay:.1s"></span><span style="animation-delay:.25s"></span><span style="animation-delay:.05s"></span><span style="animation-delay:.15s"></span></div>
+      </div>
+      <div class="feature-card stat">
+        <div class="big">&lt;200<span style="font-size:24px">ms</span></div>
+        <div class="lbl">Real-time accent translation latency</div>
+      </div>
+    </section>
+
+    <section id="science">
+      <div class="section-kicker">The Sanas Science</div>
+      <div class="section-title">We reconstruct the signal.<br/>We don’t filter it.</div>
+      <p style="max-width:620px;color:var(--gray-04);font-size:18px;">Filtering subtracts — it removes content and the voice degrades. Reconstruction rebuilds the signal through a dual-decoder architecture, so the output sounds natural and keeps the speaker’s identity. Ask Sani to walk you through it.</p>
+    </section>
+
+    <footer class="site-footer" id="trust">
+      <div>© Sanas · ISO 27001 · SOC 2 Type II · GDPR · Zero-Knowledge processing</div>
+      <div>#marchtoabillionvoices</div>
+    </footer>
+  </div>
+
+  <!-- ============ Sani launcher ============ -->
+  <button class="san-launcher" id="sanLauncher" aria-label="Open Sani, the Sanas Speech AI consultant">
+    <svg class="wave-icon" viewBox="0 0 100 100" fill="#fff" aria-hidden="true">
+      <path d="M50 50 A25 25 0 0 1 75 25 L75 50 Z"/><path d="M50 50 A25 25 0 0 0 25 75 L25 50 Z"/>
+    </svg>
+  </button>
+
+  <!-- ============ Sani chat panel ============ -->
+  <section class="san-panel" id="sanPanel" hidden aria-label="Sani — Speech AI consultant">
+
+    <!-- internal debug / observability drawer (F11; SSO-gated in production) -->
+    <div class="debug-drawer" id="debugDrawer" hidden>
+      <button class="icon-btn debug-close" id="debugClose" aria-label="Close debug">✕</button>
+      <h4>Session trace — internal observability</h4>
+      <div class="meta">Every turn is a traced event (§7.8). Joinable with speech-engine sessions via the shared session-lineage schema. SSO-gated to Sanas employees in production.</div>
+      <div id="debugBody"></div>
+    </div>
+
+    <header class="san-header">
+      <div class="san-avatar" aria-hidden="true">
+        <svg viewBox="0 0 100 100" fill="#0a0a0a"><path d="M50 50 A25 25 0 0 1 75 25 L75 50 Z"/><path d="M50 50 A25 25 0 0 0 25 75 L25 50 Z"/></svg>
+      </div>
+      <div class="san-id">
+        <div class="name">Sani <span class="dot-online" title="online" aria-label="online"></span></div>
+        <div class="role" id="sanRole">Speech AI specialist</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="sanDebugBtn" title="Session trace (internal)" aria-label="Toggle session trace">⌗</button>
+      <button class="icon-btn" id="sanClose" title="Close" aria-label="Close Sani">✕</button>
+    </header>
+
+    <div class="persona-bar" role="group" aria-label="Tell Sani who you are">
+      <span class="lbl">I’m a…</span>
+      <button class="chip" data-persona="buyer_cx"><span class="em">◆</span> CX buyer</button>
+      <button class="chip" data-persona="buyer_it"><span class="em">■</span> IT / Security</button>
+      <button class="chip" data-persona="developer"><span class="em">▸</span> Developer</button>
+      <button class="chip" data-persona="curious"><span class="em">○</span> Just looking</button>
+      <button class="persona-action" data-open-playground aria-label="Speak to a model">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/></svg>
+        Speak to a model
+      </button>
+    </div>
+
+    <div class="san-log" id="sanLog" role="log" aria-live="polite" aria-label="Conversation with Sani"></div>
+
+    <div class="suggestions" id="suggestions"></div>
+
+    <div class="san-composer">
+      <input type="file" id="sanFile" accept="audio/*" hidden />
+      <button class="upload-btn" id="sanUpload" title="Upload a clip (≤2 min)" aria-label="Upload an audio clip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 21h14"/></svg>
+      </button>
+      <textarea id="sanInput" rows="1" placeholder="Tell Sani what you’re trying to solve…" aria-label="Message Sani"></textarea>
+      <button class="send-btn" id="sanSend" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <p class="sr-only">Session <span id="sanSession"></span></p>
+  <script src="app.js"></script>
+</body>
+</html>

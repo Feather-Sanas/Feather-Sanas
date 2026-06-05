@@ -1,0 +1,12 @@
+{
+  "name": "san-consultant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "San — Sanas Speech AI consultant. Front-end + golden-eval gate (§7.4 F12).",
+  "scripts": {
+    "eval": "node --test \"evals/*.test.js\""
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}

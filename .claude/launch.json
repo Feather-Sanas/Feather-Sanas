@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "san-app",
+      "runtimeExecutable": "/Users/chris.featherstone/Desktop/projects/san-consultant/server/.venv310/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "main:app", "--port", "4173", "--app-dir", "/Users/chris.featherstone/Desktop/projects/san-consultant/server"],
+      "port": 4173
+    },
+    {
+      "name": "san",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4174", "--directory", "/Users/chris.featherstone/Desktop/projects/san-consultant"],
+      "port": 4174
+    }
+  ]
+}

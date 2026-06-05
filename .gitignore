@@ -1,0 +1,13 @@
+# secrets & vendor binaries — never commit
+server/.env
+server/vendor/*.tar.gz
+server/.venv/
+server/.venv310/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+server/vendor/*.whl
+
+# node
+node_modules/

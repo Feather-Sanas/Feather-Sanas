@@ -1,0 +1,11 @@
+services:
+  san:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    platform: linux/amd64        # Sanas SDK is x86-64; emulated on Apple Silicon
+    ports:
+      - "8000:8000"
+    env_file:
+      - server/.env              # your SANAS_* credentials (copied from .env.example)
+    restart: unless-stopped
