@@ -10,6 +10,11 @@ Sanas SDK integration** for live audio processing on uploaded clips.
 > 📐 **Architecture & diagrams:** see [ARCHITECTURE.md](ARCHITECTURE.md) for the system
 > diagram, component map, API surface, and the chat / upload / live-mic / ASR flows.
 
+> 🔒 **Secret guard:** this repo ships a pre-commit hook that blocks commits adding API
+> keys or a `.env` file. Enable it once per clone: `git config core.hooksPath .githooks`
+> (real secrets stay in the gitignored `server/.env`). Override a false positive with
+> `git commit --no-verify`.
+
 ## Two ways to run
 
 ### A. Front-end only (curated demos, no SDK)

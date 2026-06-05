@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Secret guard — blocks commits that add API keys / credentials or a real .env.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Bypass (only for a confirmed false positive):  git commit --no-verify
+set -u
+
+fail=0
+
+# 1) Never commit a real .env (it should be gitignored, but defend anyway).
+if git diff --cached --name-only | grep -qE '(^|/)\.env$'; then
+  echo "✖ Refusing to commit a .env file — keep secrets in server/.env (gitignored)."
+  fail=1
+fi
+
+# 2) Scan staged ADDED lines for secret patterns.
+#    Exclude this hooks dir so the patterns below don't match the hook itself.
+added=$(git diff --cached -U0 --no-color -- . ':(exclude).githooks/*' \
+        | grep -E '^\+' | grep -vE '^\+\+\+')
+
+patterns='sk-ant-[A-Za-z0-9_-]{16}|sk_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}|xox[baprs]-[A-Za-z0-9-]{10}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|SANAS_API_KEY|SANAS_ACCOUNT_SECRET)[[:space:]]*[:=][[:space:]]*[^[:space:]"'"'"']{8}'
+
+hits=$(printf '%s\n' "$added" | grep -EohI "$patterns" 2>/dev/null | sort -u | head -20)
+if [ -n "$hits" ]; then
+  echo "✖ Potential secret detected in staged changes:"
+  printf '%s\n' "$hits" | sed -E 's/(.{10}).*/  \1…(redacted)/'
+  fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Commit blocked by .githooks/pre-commit."
+  echo "If you are certain this is a false positive: git commit --no-verify"
+  exit 1
+fi
+exit 0
