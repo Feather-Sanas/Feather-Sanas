@@ -12,6 +12,12 @@ if git diff --cached --name-only | grep -qE '(^|/)\.env$'; then
   fail=1
 fi
 
+# 1b) Never commit .log files — SDK/runtime logs can leak account identifiers.
+if git diff --cached --name-only --diff-filter=AM | grep -qiE '\.log$'; then
+  echo "✖ Refusing to commit a .log file — SDK/runtime logs may contain account identifiers."
+  fail=1
+fi
+
 # 2) Scan staged ADDED lines for secret patterns.
 #    Exclude this hooks dir so the patterns below don't match the hook itself.
 added=$(git diff --cached -U0 --no-color -- . ':(exclude).githooks/*' \
