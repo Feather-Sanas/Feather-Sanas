@@ -11,3 +11,6 @@ server/vendor/*.whl
 
 # node
 node_modules/
+
+# SDK runtime logs (may contain account identifiers)
+server/*.log

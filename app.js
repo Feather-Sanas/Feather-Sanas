@@ -922,6 +922,116 @@ function liveNode() {
   return root;
 }
 
+/* ---------- Twilio voice handoff (talk to a human / IVR, Sanas in the call) ---------- */
+function twilioConnectNode() {
+  const root = el('div', { class: 'twilio rich' });
+  root.append(
+    el('div', { class: 'pg-title' }, 'Connect by voice'),
+    el('div', { class: 'pg-sub' }, 'Reach a specialist or the IVR. The call audio runs through the Sanas telephony model in real time — you hear the line cleaned mid-call.'));
+  const body = el('div', { class: 'tw-body' }, el('div', { class: 'pg-status' }, 'Checking Twilio…'));
+  root.appendChild(body);
+  fetch(SAN_API + '/api/twilio/config').then(r => r.json()).then(render)
+    .catch(() => { body.innerHTML = ''; body.appendChild(el('div', { class: 'pg-note' }, 'Could not reach the backend Twilio config.')); });
+
+  const statusLine = () => el('div', { class: 'pg-status' });
+
+  /* mid-call on/off — flips Sanas processing on the live call by CallSid */
+  function callToggle(callSid) {
+    let enabled = true;
+    const b = el('button', { class: 'live-toggle on' }, 'Model: ON');
+    b.addEventListener('click', async () => {
+      enabled = !enabled;
+      b.classList.toggle('on', enabled); b.textContent = 'Model: ' + (enabled ? 'ON' : 'OFF');
+      try {
+        await fetch(SAN_API + '/api/twilio/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_sid: callSid, enabled }) });
+      } catch {}
+      emit({ event: 'twilio_toggle', enabled });
+    });
+    return el('div', { class: 'tw-row tw-callctl' }, el('span', { class: 'tw-toggle-l' }, 'Sanas on the call:'), b);
+  }
+
+  async function placeCall(to, mode, status, toggleMount) {
+    if (!to) { status.textContent = 'Enter your phone number in E.164 format (e.g. +14155551234).'; return; }
+    status.textContent = 'Calling your phone…';
+    if (toggleMount) toggleMount.innerHTML = '';
+    try {
+      const r = await fetch(SAN_API + '/api/twilio/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, mode }) });
+      const d = await r.json();
+      status.textContent = d.ok
+        ? `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : 'use the IVR'}. [${d.status || 'queued'}]`
+        : 'Could not place the call: ' + (d.detail || 'error');
+      // mid-call toggle is meaningful for the modes that route through the Sanas stream
+      if (d.ok && d.sid && toggleMount && mode !== 'human') toggleMount.appendChild(callToggle(d.sid));
+      emit({ event: 'twilio_call', mode, ok: !!d.ok });
+    } catch { status.textContent = 'Call request failed — is the backend running?'; }
+  }
+
+  function render(cfg) {
+    body.innerHTML = '';
+    body.appendChild(el('div', { class: 'tw-meta' }, `Sanas model on the call: ${cfg.model}${cfg.sanas_in_call ? '' : ' (needs the SDK + audioop to enhance)'}`));
+    if (!cfg.phone_callback && !cfg.browser_voice) {
+      body.appendChild(el('div', { class: 'pg-note' },
+        'Twilio isn’t configured yet. Add TWILIO_* and PUBLIC_BASE_URL to server/.env and point your Twilio number’s Voice webhook at {PUBLIC_BASE_URL}/api/twilio/voice, then reload. Until then, Sani hands off with your transcript by email (below).'));
+      return;
+    }
+    if (cfg.phone_callback) {
+      const phone = el('input', { class: 'tw-phone', type: 'tel', placeholder: '+1 415 555 1234', 'aria-label': 'Your phone number' });
+      const st = statusLine();
+      const human = el('button', { class: 'pg-input-btn' }, 'Talk to a human');
+      const ivr = el('button', { class: 'pg-input-btn' }, 'Speak to the IVR');
+      const demo = el('button', { class: 'pg-input-btn' }, 'Hear Sanas on the call');
+      const toggleMount = el('div', { class: 'tw-toggle-mount' });
+      if (!cfg.human_dial) { human.disabled = true; human.title = 'Set TWILIO_HUMAN_NUMBER to enable'; }
+      human.addEventListener('click', () => placeCall(phone.value, 'human', st, toggleMount));
+      ivr.addEventListener('click', () => placeCall(phone.value, 'ivr', st, toggleMount));
+      demo.addEventListener('click', () => placeCall(phone.value, 'sanas', st, toggleMount));
+      body.append(el('div', { class: 'tw-row' }, phone), el('div', { class: 'tw-row' }, human, ivr, demo), st, toggleMount);
+    }
+    if (cfg.browser_voice) body.appendChild(browserVoice());
+  }
+
+  function browserVoice() {
+    const wrap = el('div', { class: 'tw-browser' });
+    const st = statusLine();
+    const tgl = el('div', { class: 'tw-toggle-mount' });
+    const btn = el('button', { class: 'pg-input-btn live' }, 'Talk in the browser');
+    let device = null, conn = null;
+    btn.addEventListener('click', async () => {
+      if (conn) { try { conn.disconnect(); } catch {} return; }
+      st.textContent = 'Loading the Voice SDK…';
+      try {
+        await loadTwilioSDK();
+        const t = await (await fetch(SAN_API + '/api/twilio/token')).json();
+        if (!t.ok) { st.textContent = t.detail || 'Token unavailable.'; return; }
+        device = new Twilio.Device(t.token, { logLevel: 'error' });
+        st.textContent = 'Connecting…';
+        conn = await device.connect({ params: { mode: 'sanas' } });
+        btn.textContent = '■ Hang up'; st.textContent = 'In call — Sanas is enhancing the line.';
+        const csid = conn.parameters && conn.parameters.CallSid;
+        tgl.innerHTML = ''; if (csid) tgl.appendChild(callToggle(csid));
+        conn.on('disconnect', () => { conn = null; btn.textContent = 'Talk in the browser'; st.textContent = 'Call ended.'; tgl.innerHTML = ''; });
+      } catch (e) { st.textContent = 'Browser call failed: ' + (e.message || e); }
+    });
+    wrap.append(el('div', { class: 'tw-or' }, 'or talk right here'), el('div', { class: 'tw-row' }, btn), st, tgl);
+    return wrap;
+  }
+
+  let _sdkP = null;
+  function loadTwilioSDK() {
+    if (window.Twilio && window.Twilio.Device) return Promise.resolve();
+    if (_sdkP) return _sdkP;
+    _sdkP = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://sdk.twilio.com/js/voice/releases/2.12.4/twilio.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('SDK load failed'));
+      document.head.appendChild(s);
+    });
+    return _sdkP;
+  }
+  return root;
+}
+
 function traceNode() {
   // ingress is a real measured prep latency from the last /api/process call;
   // the rest stay illustrative (the batch path can't measure per-frame first-byte).
@@ -1055,8 +1165,9 @@ function respond(text) {
   // ---- Human handoff (F8) ----
   if (/\b(talk to (a )?human|speak to (someone|sales|a person)|book a demo|schedule|sales rep|account exec)\b/.test(t)) {
     state.ctaTurnsAgo = 0;
-    return { text: "I'll hand you to a person with the full transcript and what I've picked up about your use case, so you don't start cold. During business hours this pages an AE in Slack; off-hours it books a callback. What's the best email to attach to the handoff?",
-      sources: [], handoff: true, suggestions: ['Book a callback', 'Keep exploring first'] };
+    return { text: "I can connect you by voice — to a specialist or our IVR — and route the call audio through Sanas so the line is cleaned in real time. Pick an option below, or I can hand off with your transcript by email.",
+      sources: [], handoff: true, nodes: [twilioConnectNode()],
+      suggestions: ['Book a callback', 'Keep exploring first'] };
   }
 
   // ---- Developer / API / sandbox / debug (F7, F10) ----

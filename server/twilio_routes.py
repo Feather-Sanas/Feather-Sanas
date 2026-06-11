@@ -1,0 +1,284 @@
+"""
+Twilio voice handoff — talk to a human or an IVR, with the call audio routed
+through the Sanas SDK so callers hear the enhanced/cleaned stream live.
+
+Two connection methods (both scaffolded; enabled when the matching env is set):
+  • Phone callback  — POST /api/twilio/call → Twilio REST dials the user's phone
+                       and runs our TwiML (human dial, IVR menu, or Sanas demo).
+  • In-browser voice — GET /api/twilio/token mints a Voice access token for the
+                       Twilio Voice JS SDK (Device.connect() → our TwiML app).
+
+The centerpiece is the **Media Streams** WebSocket /api/twilio/media: Twilio sends
+the call's 8 kHz μ-law audio, we run it through the Sanas telephony model
+(AGENTIC_VI_GT_NC) and stream the processed audio back into the call — showing how
+Sanas improves a phone call / IVR in real time.
+
+No Twilio SDK dependency: REST via urllib, the Voice JWT is hand-signed (HS256),
+μ-law via stdlib `audioop`. Everything degrades gracefully when unconfigured.
+
+Setup (server/.env):
+  TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER          # REST callback
+  TWILIO_HUMAN_NUMBER                                           # who "talk to a human" dials
+  TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, TWILIO_TWIML_APP_SID  # browser Voice SDK
+  PUBLIC_BASE_URL=https://<your-tunnel>                         # public https for TwiML + wss
+  TWILIO_SANAS_MODEL=AGENTIC_VI_GT_NC                           # 8k telephony model
+Point your Twilio number's Voice webhook (and the TwiML App's Voice URL) at
+  {PUBLIC_BASE_URL}/api/twilio/voice
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
+import urllib.parse
+import urllib.request
+from xml.sax.saxutils import escape
+
+import numpy as np
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, Response
+
+try:
+    import audioop  # stdlib (μ-law <-> PCM); present through Python 3.12
+    _AUDIOOP = True
+except Exception:
+    audioop = None  # type: ignore
+    _AUDIOOP = False
+
+import sanas_client
+
+router = APIRouter()
+
+SID = os.getenv("TWILIO_ACCOUNT_SID")
+TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+NUMBER = os.getenv("TWILIO_NUMBER")
+HUMAN = os.getenv("TWILIO_HUMAN_NUMBER")
+API_KEY = os.getenv("TWILIO_API_KEY_SID")
+API_SECRET = os.getenv("TWILIO_API_KEY_SECRET")
+APP_SID = os.getenv("TWILIO_TWIML_APP_SID")
+PUBLIC_BASE = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+SANAS_MODEL = os.getenv("TWILIO_SANAS_MODEL", "AGENTIC_VI_GT_NC")
+TW_SR = 8000  # Twilio Media Streams are 8 kHz μ-law
+
+
+# ---- capability detection (mirrors the graceful pattern used elsewhere) ----
+def _cfg() -> dict:
+    callback = all([SID, TOKEN, NUMBER, PUBLIC_BASE])
+    browser = all([SID, API_KEY, API_SECRET, APP_SID])
+    return {
+        "phone_callback": callback,           # POST /api/twilio/call works
+        "browser_voice": browser,             # /api/twilio/token works
+        "ivr": bool(PUBLIC_BASE),             # TwiML reachable
+        "human_dial": bool(HUMAN),            # a destination to dial
+        "sanas_in_call": bool(PUBLIC_BASE) and _AUDIOOP,
+        "public_base": PUBLIC_BASE or None,
+        "model": SANAS_MODEL,
+        "audioop": _AUDIOOP,
+    }
+
+
+@router.get("/api/twilio/config")
+def twilio_config() -> JSONResponse:
+    return JSONResponse(_cfg())
+
+
+# ---- TwiML builders ---------------------------------------------------------
+def _ws_url() -> str:
+    return PUBLIC_BASE.replace("https://", "wss://").replace("http://", "ws://") + \
+        f"/api/twilio/media?model={urllib.parse.quote(SANAS_MODEL)}"
+
+
+def _twiml_sanas_demo() -> str:
+    # <Connect><Stream> hands the call's bidirectional media to our WebSocket,
+    # where Sanas processes it and streams the cleaned audio back.
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><Response>'
+        '<Say>Connecting you through Sanas. You will hear your own audio, '
+        'enhanced in real time.</Say>'
+        f'<Connect><Stream url="{escape(_ws_url())}"/></Connect>'
+        '</Response>'
+    )
+
+
+def _twiml_human() -> str:
+    if not HUMAN:
+        return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+                '<Say>No human destination is configured yet. Goodbye.</Say></Response>')
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            '<Say>Connecting you to a specialist.</Say>'
+            f'<Dial>{escape(HUMAN)}</Dial></Response>')
+
+
+def _twiml_ivr() -> str:
+    action = f"{PUBLIC_BASE}/api/twilio/gather"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><Response>'
+        f'<Gather numDigits="1" action="{escape(action)}" method="POST" timeout="8">'
+        '<Say>Welcome to Sanas. Press 1 to speak to a specialist. '
+        'Press 2 to hear your call enhanced by Sanas in real time.</Say>'
+        '</Gather>'
+        '<Say>We did not get a selection. Goodbye.</Say>'
+        '</Response>'
+    )
+
+
+@router.api_route("/api/twilio/voice", methods=["GET", "POST"])
+async def twilio_voice(request: Request) -> Response:
+    mode = request.query_params.get("mode", "ivr")
+    body = {"ivr": _twiml_ivr, "human": _twiml_human, "sanas": _twiml_sanas_demo}.get(mode, _twiml_ivr)()
+    return Response(content=body, media_type="application/xml")
+
+
+@router.post("/api/twilio/gather")
+async def twilio_gather(request: Request) -> Response:
+    form = await request.form()
+    digit = (form.get("Digits") or "").strip()
+    body = _twiml_human() if digit == "1" else _twiml_sanas_demo() if digit == "2" else _twiml_ivr()
+    return Response(content=body, media_type="application/xml")
+
+
+# ---- click-to-call (Twilio REST, urllib + basic auth) -----------------------
+@router.post("/api/twilio/call")
+async def twilio_call(request: Request) -> JSONResponse:
+    if not _cfg()["phone_callback"]:
+        return JSONResponse({"ok": False, "detail": "Twilio callback not configured "
+                             "(need TWILIO_ACCOUNT_SID/AUTH_TOKEN/NUMBER + PUBLIC_BASE_URL)."}, status_code=200)
+    data = await request.json()
+    to = (data.get("to") or "").strip()
+    mode = data.get("mode", "ivr")
+    if not to:
+        return JSONResponse({"ok": False, "detail": "Provide a phone number to call."}, status_code=400)
+    voice_url = f"{PUBLIC_BASE}/api/twilio/voice?mode={urllib.parse.quote(mode)}"
+    payload = urllib.parse.urlencode({"To": to, "From": NUMBER, "Url": voice_url}).encode()
+    api = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls.json"
+    auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
+    req = urllib.request.Request(api, data=payload, method="POST",
+                                 headers={"Authorization": f"Basic {auth}",
+                                          "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            out = json.loads(resp.read().decode())
+        return JSONResponse({"ok": True, "sid": out.get("sid"), "status": out.get("status"), "mode": mode})
+    except urllib.error.HTTPError as e:
+        return JSONResponse({"ok": False, "detail": f"Twilio {e.code}: {e.read().decode()[:200]}"}, status_code=200)
+    except Exception as e:
+        return JSONResponse({"ok": False, "detail": f"{type(e).__name__}: {e}"}, status_code=200)
+
+
+# ---- Voice access token for the browser SDK (hand-signed JWT) ---------------
+def _voice_token(identity: str) -> str:
+    now = int(time.time())
+    header = {"typ": "JWT", "alg": "HS256", "cty": "twilio-fpa;v=1"}
+    grants = {"identity": identity,
+              "voice": {"outgoing": {"application_sid": APP_SID}, "incoming": {"allow": True}}}
+    payload = {"jti": f"{API_KEY}-{now}", "iss": API_KEY, "sub": SID,
+               "iat": now, "nbf": now, "exp": now + 3600, "grants": grants}
+    seg = lambda o: base64.urlsafe_b64encode(json.dumps(o, separators=(",", ":")).encode()).rstrip(b"=")
+    signing = seg(header) + b"." + seg(payload)
+    sig = base64.urlsafe_b64encode(hmac.new(API_SECRET.encode(), signing, hashlib.sha256).digest()).rstrip(b"=")
+    return (signing + b"." + sig).decode()
+
+
+# ---- mid-call model on/off ---------------------------------------------------
+# Registry keyed by CallSid; the media loop reads `enabled` each frame so the
+# caller can A/B Sanas vs the raw line live. Browser/phone toggle via /toggle.
+STREAMS: dict[str, dict] = {}
+
+
+@router.post("/api/twilio/toggle")
+async def twilio_toggle(request: Request) -> JSONResponse:
+    d = await request.json()
+    call_sid = (d.get("call_sid") or "").strip()
+    enabled = bool(d.get("enabled", True))
+    if not call_sid:
+        return JSONResponse({"ok": False, "detail": "call_sid required"}, status_code=400)
+    STREAMS.setdefault(call_sid, {"enabled": True})["enabled"] = enabled
+    return JSONResponse({"ok": True, "call_sid": call_sid, "enabled": enabled})
+
+
+@router.get("/api/twilio/token")
+def twilio_token() -> JSONResponse:
+    if not _cfg()["browser_voice"]:
+        return JSONResponse({"ok": False, "detail": "Browser voice not configured "
+                             "(need TWILIO_ACCOUNT_SID + API key/secret + TWIML_APP_SID)."}, status_code=200)
+    identity = f"sani-{int(time.time())}"
+    return JSONResponse({"ok": True, "token": _voice_token(identity), "identity": identity})
+
+
+# ---- Media Streams WS: call audio → Sanas → back into the call --------------
+@router.websocket("/api/twilio/media")
+async def twilio_media(ws: WebSocket):
+    import asyncio
+    await ws.accept()
+    loop = asyncio.get_running_loop()
+    model = ws.query_params.get("model", SANAS_MODEL)
+    sess = None
+    stream_sid = None
+    call_sid = None
+    residual = np.zeros(0, dtype=np.int16)
+    frame = int(TW_SR * 0.02)  # 160 samples / 20ms
+
+    def echo(payload_b64):
+        return ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
+                                        "media": {"payload": payload_b64}}))
+
+    try:
+        while True:
+            raw = await ws.receive_text()           # Twilio sends JSON text frames
+            msg = json.loads(raw)
+            ev = msg.get("event")
+            if ev == "start":
+                stream_sid = msg["start"]["streamSid"]
+                call_sid = msg["start"].get("callSid") or stream_sid
+                STREAMS.setdefault(call_sid, {"enabled": True})
+                if sanas_client.client.mode == "real" and _AUDIOOP:
+                    try:
+                        sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, TW_SR)
+                        frame = sess.frame_samples
+                    except Exception:
+                        sess = None
+            elif ev == "media":
+                # mid-call toggle: when the model is off (or unavailable), echo the
+                # raw line so the caller A/Bs against Sanas live.
+                enabled = STREAMS.get(call_sid, {}).get("enabled", True)
+                if sess is None or not _AUDIOOP or not enabled:
+                    await echo(msg["media"]["payload"])
+                    continue
+                pcm = audioop.ulaw2lin(base64.b64decode(msg["media"]["payload"]), 2)
+                ints = np.frombuffer(pcm, dtype=np.int16)
+                buf = np.concatenate([residual, ints])
+                n = len(buf) // frame
+                if n == 0:
+                    residual = buf
+                    continue
+                chunk, residual = buf[:n * frame], buf[n * frame:]
+                floats = chunk.astype(np.float32) / 32768.0
+
+                def run():
+                    out = []
+                    for i in range(n):
+                        out.extend(sess.process(floats[i * frame:(i + 1) * frame].tolist()))
+                    return out
+
+                out = await loop.run_in_executor(None, run)
+                arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+                ulaw = audioop.lin2ulaw(arr.tobytes(), 2)
+                await ws.send_text(json.dumps({
+                    "event": "media", "streamSid": stream_sid,
+                    "media": {"payload": base64.b64encode(ulaw).decode()},
+                }))
+            elif ev == "stop":
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if call_sid:
+            STREAMS.pop(call_sid, None)
+        if sess is not None:
+            try: await loop.run_in_executor(None, sess.close)
+            except Exception: pass

@@ -450,3 +450,18 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 }
 .persona-action svg { width: 14px; height: 14px; }
 .persona-action:hover { background: rgba(68, 236, 160, .14); }
+
+/* ---------- Twilio voice handoff ---------- */
+.twilio { display: flex; flex-direction: column; gap: 10px; }
+.tw-body { display: flex; flex-direction: column; gap: 10px; }
+.tw-meta { font-size: 11.5px; color: var(--gray-04); }
+.tw-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tw-phone {
+  font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--gray-02); background: var(--sanas-white); min-width: 200px; flex: 1;
+}
+.tw-browser { border-top: 1px dashed var(--gray-02); padding-top: 10px; margin-top: 2px; }
+.tw-or { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-03); margin-bottom: 6px; }
+.pg-input-btn:disabled { opacity: .45; cursor: default; }
+.tw-toggle-l { font-size: 12px; color: var(--gray-04); }
+.tw-callctl { margin-top: 4px; }

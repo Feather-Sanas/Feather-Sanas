@@ -252,12 +252,22 @@ class StreamSession:
 
 
 def _create_stream(self, model=None, sample_rate=None):
-    """Open a live streaming session, or None if not in real mode."""
+    """Open a live streaming session, or None if not in real mode. Retries a few
+    times: a just-ended call (e.g. a prior /api/process) tears its SIP session
+    down asynchronously, so CreateAudioProcessor can transiently fail with a
+    busy/limit code until the slot frees."""
     if self.mode != "real" or not self._initialized:
         return None
     model = model or self.model
     sr = sample_rate or MODEL_SAMPLE_RATES.get(model, 16000)
-    return StreamSession(self._sdk, model, sr)
+    last = None
+    for attempt in range(4):
+        try:
+            return StreamSession(self._sdk, model, sr)
+        except Exception as exc:
+            last = exc
+            time.sleep(1.5)
+    raise last
 
 
 SanasClient.create_stream = _create_stream

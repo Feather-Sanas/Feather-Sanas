@@ -54,6 +54,7 @@ _load_dotenv()
 import asr  # noqa: E402  (after dotenv load)
 import llm  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
+from twilio_routes import router as twilio_router  # noqa: E402
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024   # generous cap; spec limits clips to ~2 min
 # In Docker the front-end lives in a dedicated dir (WEB_DIR env); for local dev
@@ -65,6 +66,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+app.include_router(twilio_router)   # /api/twilio/* (human handoff + IVR via Twilio)
 
 
 @app.on_event("startup")
