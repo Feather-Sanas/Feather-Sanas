@@ -35,8 +35,8 @@ SEED_PATHS = [
     "/customer-stories", "/healthcare", "/financial-services", "/retail", "/travel",
     "/partners", "/blog", "/news",
 ]
-MAX_PAGES = 60
-SKIP_SLUG = re.compile(r"/(blog|news)/(layout|loading|page)-")
+MAX_PAGES = 90
+SKIP_SLUG = re.compile(r"/(blog|news|science)/(layout|loading|page)-")
 
 
 def fetch(url: str) -> str | None:
@@ -99,8 +99,8 @@ def parse(html: str) -> tuple[str, str, list[str]]:
         pass
     title = (ex.og or ex.title or "").replace(" | Sanas", "").strip()
     text = re.sub(r"\s+", " ", " ".join(ex.parts)).strip()
-    # internal links (for discovering blog/news posts)
-    links = re.findall(r'href="(/(?:blog|news)/[a-z0-9][a-z0-9-]+)"', html)
+    # internal links (for discovering blog/news posts + science articles)
+    links = re.findall(r'href="(/(?:blog|news|science)/[a-z0-9][a-z0-9-]+)"', html)
     return title, text, links
 
 

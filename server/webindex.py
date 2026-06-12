@@ -53,13 +53,18 @@ def _snippet(page: dict, terms: list[str]) -> str:
     return ("…" if start else "") + x[start:start + 200].strip() + "…"
 
 
-def search(query: str, k: int = 3) -> list[dict]:
+def search(query: str, k: int = 3, prefer: str | None = None) -> list[dict]:
+    """Lexical top-k over the index. `prefer` (a URL substring, e.g. "/science")
+    boosts matching pages so a given section surfaces for the right persona —
+    used to ground the Data Scientist in the Sanas science articles."""
     pages, terms = _load(), _terms(query or "")
     if not pages or not terms:
         return []
     scored = []
     for p in pages:
         s = sum(3 * p["_t"].count(t) + p["_x"].count(t) for t in terms)
+        if s and prefer and prefer in p["url"]:
+            s = s * 3 + 2          # float the preferred section to the top
         if s:
             scored.append((s, p))
     scored.sort(key=lambda sp: -sp[0])

@@ -100,6 +100,12 @@ def _last_user(msgs: list[dict]) -> str:
     return ""
 
 
+def _prefer(persona: str | None) -> str | None:
+    """Bias retrieval toward a site section for certain personas. Data scientists
+    get grounded in the Sanas science articles (sanas.ai/science)."""
+    return "/science" if persona == "data_scientist" else None
+
+
 class ChatTurn(BaseModel):
     role: str
     content: str
@@ -121,7 +127,7 @@ def chat(req: ChatReq) -> JSONResponse:
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
-    sources = webindex.search(_last_user(msgs), k=3)
+    sources = webindex.search(_last_user(msgs), k=3, prefer=_prefer(req.persona))
     text = llm.chat(msgs, req.persona, req.skeptic, context=sources)
     return JSONResponse({
         "text": text,
@@ -141,7 +147,7 @@ def chat_stream(req: ChatReq):
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
-    sources = webindex.search(_last_user(msgs), k=3)
+    sources = webindex.search(_last_user(msgs), k=3, prefer=_prefer(req.persona))
     src_hdr = json.dumps([{"title": s["title"], "url": s["url"]} for s in sources])  # ASCII, one line
     if not llm.available():
         return Response(content=b"", media_type="text/plain",
