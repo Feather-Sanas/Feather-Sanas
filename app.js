@@ -340,6 +340,113 @@ function drawBufferWaveform(canvas, buffer, color) {
   ctx.stroke();
 }
 
+/* ============================================================
+   SPECTROGRAM ANALYSIS (F5) — client-side STFT on an uploaded /
+   processed clip. Decode → windowed FFT frames → log-magnitude
+   heat map. Lets a user (and the Data-Scientist persona) see the
+   frequency content before vs after Sanas reconstruction.
+   ============================================================ */
+
+/* In-place iterative radix-2 Cooley–Tukey FFT (re/im are length-N, N a power of 2). */
+function _fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {              // bit-reversal permutation
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = i + k + len / 2;
+        const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti;
+        re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+
+/* Magnitude STFT → {cols, bins, mag[col*bins+bin] in dB, nyquist}. */
+function computeSpectrogram(buffer, { fftSize = 512, hop = 256, maxSec = 12 } = {}) {
+  const sr = buffer.sampleRate;
+  const all = buffer.getChannelData(0);
+  const data = all.length > sr * maxSec ? all.subarray(0, Math.floor(sr * maxSec)) : all;
+  const bins = fftSize / 2;
+  const win = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (fftSize - 1)); // Hann
+  const cols = Math.max(1, Math.floor((data.length - fftSize) / hop) + 1);
+  const mag = new Float32Array(cols * bins);
+  const re = new Float64Array(fftSize), im = new Float64Array(fftSize);
+  let lo = Infinity, hi = -Infinity;
+  for (let c = 0; c < cols; c++) {
+    const off = c * hop;
+    for (let i = 0; i < fftSize; i++) { re[i] = (data[off + i] || 0) * win[i]; im[i] = 0; }
+    _fft(re, im);
+    for (let k = 0; k < bins; k++) {
+      const m = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+      const db = 20 * Math.log10(m + 1e-7);
+      mag[c * bins + k] = db;
+      if (db < lo) lo = db; if (db > hi) hi = db;
+    }
+  }
+  return { cols, bins, mag, lo, hi, nyquist: sr / 2 };
+}
+
+/* Brand-tinted heat ramp: dark → teal → green → pale (t in [0,1]). */
+function _heat(t) {
+  const stops = [[10, 10, 12], [12, 60, 80], [22, 196, 128], [120, 240, 170], [233, 255, 233]];
+  const x = Math.max(0, Math.min(0.9999, t)) * (stops.length - 1);
+  const i = Math.floor(x), f = x - i, a = stops[i], b = stops[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+
+/* Render a precomputed spectrogram into a canvas (low freq at bottom). */
+function drawSpectrogram(canvas, spec) {
+  const { cols, bins, mag, lo, hi } = spec;
+  const tmp = document.createElement('canvas');
+  tmp.width = cols; tmp.height = bins;
+  const tctx = tmp.getContext('2d');
+  const img = tctx.createImageData(cols, bins);
+  const range = Math.max(1e-3, hi - lo), floor = lo + range * 0.35; // drop the lowest 35% as noise floor
+  for (let c = 0; c < cols; c++) {
+    for (let k = 0; k < bins; k++) {
+      const t = (mag[c * bins + k] - floor) / (hi - floor);
+      const [r, g, b] = _heat(t);
+      const y = bins - 1 - k;                       // flip so 0 Hz is at the bottom
+      const o = (y * cols + c) * 4;
+      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+    }
+  }
+  tctx.putImageData(img, 0, 0);
+  const W = canvas.width = canvas.offsetWidth * 2, H = canvas.height = canvas.offsetHeight * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(tmp, 0, 0, W, H);
+}
+
+/* Reusable spectrogram panel with a frequency-axis caption. getBuffer() is
+   called on each redraw so it follows the Before↔After toggle. */
+function spectrogramView(getBuffer) {
+  const canvas = el('canvas', { class: 'spectro', 'aria-label': 'Spectrogram analysis' });
+  const axis = el('div', { class: 'spectro-axis' });
+  const cache = new WeakMap();
+  const redraw = () => {
+    const buf = getBuffer(); if (!buf) return;
+    let spec = cache.get(buf);
+    if (!spec) { spec = computeSpectrogram(buf); cache.set(buf, spec); }
+    drawSpectrogram(canvas, spec);
+    const ny = Math.round(spec.nyquist / 1000);
+    axis.innerHTML = `<span>${ny} kHz</span><span>${(ny / 2).toFixed(ny % 2 ? 1 : 0)} kHz</span><span>0</span>`;
+  };
+  return { el: el('div', { class: 'spectro-wrap' }, el('div', { class: 'spectro-cap' }, 'Spectrogram — frequency over time'), el('div', { class: 'spectro-row' }, axis, canvas)), redraw };
+}
+
 function playScenario(key, processed, canvas) {
   const ctx = audioCtx();
   if (ctx.state === 'suspended') ctx.resume();
@@ -620,7 +727,8 @@ function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
     el('span', { class: 'state-off' }, 'Before'),
     el('span', { class: 'state-on' }, 'After'),
     el('span', { class: 'knob', html: waveSVG('#16c47f') }));
-  const draw = () => drawBufferWaveform(canvas, on ? procBuf : origBuf, on ? '#16c47f' : '#a7a7a7');
+  const spectro = spectrogramView(() => (on ? procBuf : origBuf));
+  const draw = () => { drawBufferWaveform(canvas, on ? procBuf : origBuf, on ? '#16c47f' : '#a7a7a7'); spectro.redraw(); };
   const controls = audioControls(() => (on ? procBuf : origBuf));
   const setOn = v => { on = v; toggle.classList.toggle('on', on); track.setAttribute('aria-checked', String(on)); draw(); };
   track.addEventListener('click', () => { controls.halt(); setOn(!on); emit({ event: 'audio_toggle', processed: on, sanas_mode: meta.mode }); });
@@ -632,7 +740,7 @@ function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
     el('div', { class: 'scn-desc' }, meta.mode === 'real'
       ? `Processed live by Sanas ${meta.model} at ${meta.sr} Hz · switch Before↔After, then Play/Stop`
       : 'Mock processing — install the SDK for live Sanas output'),
-    canvas, toggle);
+    canvas, toggle, spectro.el);
   if (rawBytes && rawBytes.before && rawBytes.after) {
     node.appendChild(asrSection(async () => ({ before: rawBytes.before, after: rawBytes.after })));
   }
