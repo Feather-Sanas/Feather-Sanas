@@ -127,7 +127,16 @@ def _twiml_ivr() -> str:
 
 @router.api_route("/api/twilio/voice", methods=["GET", "POST"])
 async def twilio_voice(request: Request) -> Response:
-    mode = request.query_params.get("mode", "ivr")
+    # mode may arrive as a query param (REST callback Url) or a POST form field
+    # (browser Device.connect params are POSTed to the TwiML App's Voice URL).
+    mode = request.query_params.get("mode")
+    if not mode and request.method == "POST":
+        try:
+            form = await request.form()
+            mode = form.get("mode")
+        except Exception:
+            mode = None
+    mode = mode or "ivr"
     body = {"ivr": _twiml_ivr, "human": _twiml_human, "sanas": _twiml_sanas_demo}.get(mode, _twiml_ivr)()
     return Response(content=body, media_type="application/xml")
 
