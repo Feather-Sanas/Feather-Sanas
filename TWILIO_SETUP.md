@@ -1,89 +1,108 @@
 # Twilio voice handoff — go-live setup
 
-Sani can connect a caller to a **human** or an **IVR**, and route the call audio
-through the **Sanas telephony model** (`AGENTIC_VI_GT_NC`, 8 kHz) in real time —
-with a **mid-call On/Off toggle** to A/B Sanas against the raw line.
+Sani connects a caller to a **human** or bridges two parties, and routes the call
+audio through **Sanas** in real time. Three ways to use it, all with a **mid-call
+model On/Off** (and live model switching):
 
-The integration is built and verified at the protocol level. To make real calls
-you need a public URL + a few Twilio objects. This is the checklist.
+1. **Dial-in (recommended demo of in-path Sanas):** call your Twilio number, key in
+   a destination, and you're bridged two-way — your voice is **cleaned by Sanas
+   before the other person hears it**. Press keys mid-call to switch models.
+2. **Browser voice:** talk in the page (WebRTC). Blank number = hear yourself
+   through Sanas; enter a number = call them (optionally Sanas **in-path**, beta).
+3. **Phone callback:** Twilio dials your phone and runs the IVR / Sanas demo.
+
+The integration is built and verified at the protocol level with the real Sanas
+engine. To make real calls you need a public URL + a few Twilio objects.
 
 ---
 
-## The two paths (pick based on your credentials)
+## What each path needs
 
-| Path | What it needs | Works with **test** creds? |
+| Path | Needs | Works with **test** creds? |
 |---|---|---|
-| **Browser voice** (talk in the page, WebRTC) | API Key **SID + Secret**, a **TwiML App**, a public URL | ✅ yes — uses an access token, not the REST Auth Token |
-| **Phone callback** (Twilio dials your phone) | Account SID + **Auth Token**, a Twilio number, a public URL | ❌ **no** — test creds can't place real calls; needs **live** Account SID + Auth Token |
-
-> **Recommended for a self-contained demo:** the **browser voice** path — no real
-> phone needed, and it doesn't require the live REST Auth Token.
+| **Dial-in / bridge** | a Twilio number + **live** Account SID + Auth Token + public URL | ❌ outbound leg needs **live** creds (+ destination verified on trial) |
+| **Browser voice** | API Key **SID + Secret**, a **TwiML App**, public URL | ✅ uses an access token, not the REST Auth Token |
+| **Phone callback** | live Account SID + Auth Token, a number, public URL | ❌ test creds can't place real calls |
 
 ---
 
 ## Steps
 
 ### 1. Public URL (tunnel to the backend on :8000)
-Twilio must reach your TwiML and the Media-Streams `wss`. Either:
+Twilio must reach your TwiML and the Media-Streams `wss`:
 ```bash
-# Option A — ngrok (stable, needs a free authtoken)
-ngrok http 8000                      # → https://<id>.ngrok-free.app
-
-# Option B — cloudflared quick tunnel (no account)
-cloudflared tunnel --url http://localhost:8000   # → https://<random>.trycloudflare.com
+ngrok http 8000                      # → https://<id>.ngrok-free.dev   (stable; needs a free authtoken)
+# or: cloudflared tunnel --url http://localhost:8000   (no account; can be flaky)
 ```
-Copy the https URL → this is `PUBLIC_BASE_URL`.
-> ⚠️ This exposes the backend publicly (it has no per-endpoint auth). The URL is
-> unguessable; still, stop the tunnel when you're done, and don't share the URL.
+Copy the https URL → `PUBLIC_BASE_URL`.
+> ⚠️ This exposes the backend publicly (no per-endpoint auth). Stop the tunnel when done.
+> ngrok's free URL changes per session — re-point the TwiML App + number webhook if it does.
 
-### 2. New API key + secret  (the old secret is unrecoverable)
-Console → **Account → API keys & tokens → Create API key** (Standard).
-Copy the **Secret immediately** (shown once).
-→ `TWILIO_API_KEY_SID` (`SK…`) and `TWILIO_API_KEY_SECRET`.
-(You can delete the old key `SKf7a5…` — its secret is gone.)
+### 2. API key + secret  (secret shown once)
+Console → **Account → API keys & tokens → Create API key** (Standard) →
+`TWILIO_API_KEY_SID` (`SK…`) + `TWILIO_API_KEY_SECRET`.
 
-### 3. Create a TwiML App
-Console → **Voice → Manage → TwiML Apps → Create new TwiML App**.
-- **Voice Request URL:** `https://<PUBLIC_BASE_URL>/api/twilio/voice`  (method **POST**)
-- Save → copy the **App SID** (`AP…`) → `TWILIO_TWIML_APP_SID`.
+### 3. Create a TwiML App (for browser voice)
+Console → **Voice → Manage → TwiML Apps → Create** →
+- **Voice Request URL:** `https://<PUBLIC_BASE_URL>/api/twilio/voice`  (POST)
+- Save → copy **App SID** (`AP…`) → `TWILIO_TWIML_APP_SID`.
 
-### 4. Point the number's Voice webhook (for inbound calls)
-Console → **Phone Numbers → your number (+1 855 257 0843) → Voice Configuration**.
-- **A call comes in:** Webhook → `https://<PUBLIC_BASE_URL>/api/twilio/voice` (POST).
-- (This replaces the placeholder `https://demo.twilio.com/welcome/voice/`.)
+### 4. Point the number's Voice webhook (for dial-in / inbound)
+Console → **Phone Numbers → (425) 842-0002 → Voice Configuration → A call comes in:**
+- Webhook → `https://<PUBLIC_BASE_URL>/api/twilio/voice` (POST).
+
+With live creds you can set this via API instead:
+```bash
+curl -u "$SID:$LIVE_TOKEN" -X POST \
+  "https://api.twilio.com/2010-04-01/Accounts/$SID/IncomingPhoneNumbers/<PN_SID>.json" \
+  --data-urlencode "VoiceUrl=https://<PUBLIC_BASE_URL>/api/twilio/voice" --data-urlencode "VoiceMethod=POST"
+```
 
 ### 5. Fill `server/.env` and restart
 ```ini
 PUBLIC_BASE_URL=https://<your-tunnel>
-TWILIO_ACCOUNT_SID=AC…          # LIVE SID for phone callback; test SID is fine for browser voice
-TWILIO_AUTH_TOKEN=…             # LIVE Auth Token only needed for phone callback
-TWILIO_NUMBER=+18552570843
-TWILIO_HUMAN_NUMBER=+18552570843
+TWILIO_ACCOUNT_SID=AC…          # LIVE SID for dial-in/callback (browser voice tolerates either)
+TWILIO_AUTH_TOKEN=…             # LIVE Auth Token (dial-in/callback)
+TWILIO_NUMBER=+14258420002
+TWILIO_HUMAN_NUMBER=+1…         # a real human line for "talk to a human" (not the Twilio number)
 TWILIO_API_KEY_SID=SK…
-TWILIO_API_KEY_SECRET=…         # from step 2
-TWILIO_TWIML_APP_SID=AP…        # from step 3
-TWILIO_SANAS_MODEL=AGENTIC_VI_GT_NC
+TWILIO_API_KEY_SECRET=…
+TWILIO_TWIML_APP_SID=AP…
+TWILIO_SANAS_MODEL=AGENTIC_VI_GT_NC   # 8 kHz telephony model (default on the call)
 ```
 Restart: `cd server && .venv310/bin/uvicorn main:app --port 8000`
 
 ### 6. Verify
 ```bash
 curl -s http://127.0.0.1:8000/api/twilio/config | python3 -m json.tool
-# browser_voice:true (after steps 2–3); phone_callback:true needs live creds + PUBLIC_BASE_URL
 ```
-In the app: Sani → "talk to someone" → **Connect by voice**:
-- **Talk in the browser** → in-page call; Sanas enhances the line.
-- **Speak to the IVR / Hear Sanas on the call** → phone callback (live creds).
-- Once connected, **Sanas on the call: Model ON/OFF** flips processing live.
 
 ---
 
-## How it's wired (for reference)
-- `POST /api/twilio/call` — REST click-to-call (urllib + basic auth).
-- `GET/POST /api/twilio/voice?mode=ivr|human|sanas` — returns TwiML.
-- `POST /api/twilio/gather` — IVR digit routing (1 = human, 2 = Sanas demo).
-- `GET /api/twilio/token` — hand-signed Voice access token for the browser SDK.
-- `WS /api/twilio/media` — Twilio Media Streams: μ-law 8 kHz → Sanas `ProcessSamples` → back.
-- `POST /api/twilio/toggle {call_sid, enabled}` — mid-call model On/Off.
+## Using the dial-in flow
+
+1. Call **(425) 842-0002**.
+2. "Enter the number you'd like to call, with country code, then press #." → key it, press #.
+   (10 digits → assumed US `+1`; otherwise it prefixes `+`.)
+3. You're bridged two-way; **your voice is cleaned by Sanas in-path** before the callee hears it.
+4. **Press keys mid-call** to switch live (each plays a short confirmation tone):
+   - **1** → Noise Cancellation (`AGENTIC_VI_GT_NC`, 8 kHz)
+   - **2** → Speech Enhancement (`SE2.2`, 16 kHz, auto-resampled to the line)
+   - **3** → Voice Isolation (`VI_G_NC3.0`, 16 kHz)
+   - **0** → Sanas off (raw line)
+
+> **Trial limit:** the dialed destination must be a **Verified Caller ID** (error 21219)
+> or the account upgraded. Inbound (you calling in) works on trial with the trial notice.
+
+---
+
+## How it's wired (reference)
+
+- `GET/POST /api/twilio/voice` — TwiML. No mode (inbound) → **dial-in prompt**; `mode=ivr|human|sanas|dial|bridge|bridgeleg`.
+- `POST /api/twilio/dialin-connect` — gathers the keyed number → bridges via `<Connect><Stream>`.
+- `WS /api/twilio/bridge` — joins **caller** + **callee** legs; caller audio → Sanas → callee; relays callee → caller; reads **DTMF** to switch model / toggle; injects confirmation tones. Resamples 8 kHz ↔ 16 kHz models.
+- `WS /api/twilio/media` — single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back.
+- `POST /api/twilio/toggle {call_sid|bridge_id, enabled}` — mid-call On/Off.
+- `POST /api/twilio/call` — REST click-to-call.  `GET /api/twilio/token` — browser Voice access token.
 
 All endpoints degrade gracefully when unconfigured (`/api/twilio/config` reports what's live).

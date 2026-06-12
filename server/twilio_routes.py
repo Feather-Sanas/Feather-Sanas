@@ -448,16 +448,40 @@ def _process_caller(br: dict, payload_b64: str):
     return base64.b64encode(audioop.lin2ulaw(pcm_out, 2)).decode()
 
 
+_TONE_HZ = {"AGENTIC_VI_GT_NC": 880, "SE2.2": 1320, "VI_G_NC3.0": 1760}  # per-model confirm pitch
+
+
+async def _confirm_tone(br: dict, freq: int, ms: int = 180):
+    """Play a short windowed tone into the caller's ear to confirm a DTMF action.
+    (A <Connect><Stream> owns the media, so we inject audio rather than <Say>.)"""
+    caller, sid = br.get("caller"), br.get("caller_sid")
+    if not caller or not sid or not _AUDIOOP:
+        return
+    n = int(TW_SR * ms / 1000)
+    win = np.hanning(n) if n > 1 else np.ones(n)
+    pcm = (np.sin(2 * np.pi * freq * np.arange(n) / TW_SR) * 7000 * win).astype(np.int16)
+    payload = base64.b64encode(audioop.lin2ulaw(pcm.tobytes(), 2)).decode()
+    try:
+        await caller.send_text(json.dumps({"event": "media", "streamSid": sid,
+                                           "media": {"payload": payload}}))
+    except Exception:
+        pass
+
+
 async def _bridge_dtmf(br: dict, digit: str, loop):
-    """In-call DTMF: 0 = Sanas off; 1/2/3 = switch model (recreates the processor)."""
+    """In-call DTMF: 0 = Sanas off; 1/2/3 = switch model (recreates the processor).
+    Each action plays a short confirmation tone back to the caller."""
     if digit == "0":
         br["enabled"] = False
+        await _confirm_tone(br, 440)            # low tone = off
         return
     model = DTMF_MODELS.get(digit)
     if not model:
         return
     br["enabled"] = True
+    freq = _TONE_HZ.get(model, 1000)
     if model == br.get("model") and br.get("sess") is not None:
+        await _confirm_tone(br, freq)
         return
     old = br.get("sess")
     br["sess"] = None
@@ -472,6 +496,7 @@ async def _bridge_dtmf(br: dict, digit: str, loop):
             br["model"] = model
         except Exception:
             br["sess"] = None
+    await _confirm_tone(br, freq)               # confirm after the (re)create
 
 
 @router.websocket("/api/twilio/bridge")
