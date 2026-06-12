@@ -443,7 +443,7 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .live-meter:first-child .lm-track i { background: var(--gray-03); }
 
 /* "Speak to a model" / "Speak to a person" actions in the persona bar */
-.persona-actions { flex-basis: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 4px; }
+.persona-actions { flex-basis: 100%; display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 4px; }
 .persona-action {
   display: inline-flex; align-items: center; gap: 6px;
   font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
