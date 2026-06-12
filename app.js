@@ -484,8 +484,8 @@ function linkChips(sources) {
 /* the canonical opening, persona-tunable (§5.3) */
 function opening(persona) {
   if (persona === 'developer')
-    return { text: "Hello. I'm Sani, Sanas's Speech AI specialist. The fastest path is the `sanas_remote_sdk` package — init with your endpoint and account credentials, then stream PCM through a model. Want the code, the eight-layer latency trace, or to upload a clip and hear it processed?" };
-  return { text: "Hello. I'm Sani — Sanas's Speech AI specialist. Before we get into product fit, what's the actual problem you're trying to solve? A noisy environment, accent intelligibility, or something at the codec level? Tell me what you're hearing, and I'll show you what the signal looks like after we're done with it." };
+    return { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Fast path: the `sanas_remote_sdk` package — init, then stream PCM through a model. Want the code, the latency trace, or to upload a clip?" };
+  return { text: "Hi, I'm Sani — Sanas's Speech AI specialist. What are you trying to solve? Tell me what you're hearing — background noise, accent intelligibility, or a codec-level issue — and I'll show you the signal before and after." };
 }
 
 /* ---------- ASR recognition comparison (real Whisper, via backend) ---------- */
@@ -1384,6 +1384,19 @@ function addStreamingMessage() {
   };
 }
 
+/* type a Sani message out word-by-word (used for the opening); instant if the
+   user prefers reduced motion */
+async function typeMessage(text, extras = {}) {
+  const sm = addStreamingMessage();
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { sm.finalize(text, extras); return; }
+  for (const tok of text.split(/(\s+)/)) {
+    sm.append(tok);
+    await new Promise(r => setTimeout(r, tok.trim() ? 26 : 10));
+  }
+  sm.finalize(text, extras);
+}
+
 function showTyping() {
   const t = el('div', { class: 'msg san', id: 'typing' },
     el('div', { class: 'av', html: waveSVG('#0a0a0a') }),
@@ -1405,9 +1418,9 @@ function setPersona(p, explicit) {
   if (!p) return;
   const changed = state.persona !== p;
   state.persona = p; if (explicit) state.personaExplicit = true;
-  // reflect in chip UI
-  document.querySelectorAll('.persona-bar .chip').forEach(c =>
-    c.classList.toggle('active', c.dataset.persona === p));
+  // reflect in the persona dropdown
+  const sel = $('#personaSelect');
+  if (sel && sel.value !== p) sel.value = p;
   // reflect register in header
   $('#sanRole').textContent = 'Speech AI specialist · ' + (PERSONAS[p]?.label || 'concierge');
   if (changed) emit({ event: 'persona_set', persona_detected: p, explicit: !!explicit, sub_persona: p });
@@ -1554,7 +1567,7 @@ function openPanel() {
   if (!state.opened) {
     state.opened = true;
     const op = opening(state.persona);
-    addMessage('san', op.text);
+    typeMessage(op.text);     // types out on first open
     setSuggestions(['Offshore agents, US customers', 'Play a before/after', "I'm a developer", 'Is it really natural?']);
     emit({ event: 'session_start', persona_detected: state.persona });
   }
@@ -1577,25 +1590,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // session id display
   $('#sanSession').textContent = state.sessionId.slice(0, 8);
 
-  // persona chips
-  document.querySelectorAll('.persona-bar .chip').forEach(chip =>
-    chip.addEventListener('click', () => {
-      setPersona(chip.dataset.persona, true);
-      const intro = {
-        developer: "Noted — I'll keep it technical. Want the SDK code, the eight-layer latency trace, or to upload a clip and hear it processed through the model?",
-        buyer_cx: "Got it. I'll lead with outcomes — AHT, CSAT, FCR. What's the setup: how many seats, and what's the main complaint from customers today?",
-        buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
-        curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
-      }[chip.dataset.persona];
-      addMessage('san', intro);
-      const sg = {
-        developer: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process'],
-        buyer_cx: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after'],
-        buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
-        curious: ['What does Sanas do?', 'Play a before/after'],
-      }[chip.dataset.persona];
-      setSuggestions(sg);
-    }));
+  // persona dropdown
+  const personaSel = $('#personaSelect');
+  if (personaSel) personaSel.addEventListener('change', () => {
+    const p = personaSel.value;
+    setPersona(p, true);
+    const intro = {
+      developer: "Noted — I'll keep it technical. Want the SDK code, the eight-layer latency trace, or to upload a clip and hear it processed through the model?",
+      buyer_cx: "Got it. I'll lead with outcomes — AHT, CSAT, FCR. What's the setup: how many seats, and what's the main complaint from customers today?",
+      buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
+      curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
+    }[p];
+    if (intro) addMessage('san', intro);
+    const sg = {
+      developer: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process'],
+      buyer_cx: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after'],
+      buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
+      curious: ['What does Sanas do?', 'Play a before/after'],
+    }[p];
+    if (sg) setSuggestions(sg);
+  });
 
   // composer
   const input = $('#sanInput');

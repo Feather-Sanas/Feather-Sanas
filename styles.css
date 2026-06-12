@@ -155,7 +155,12 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 
 /* Persona chips */
 .persona-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--gray-02); flex-wrap: wrap; background: var(--gray-01); }
-.persona-bar .lbl { width: 100%; font-size: 11px; color: var(--gray-04); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 2px; }
+.persona-bar .lbl { font-size: 11px; color: var(--gray-04); text-transform: uppercase; letter-spacing: .1em; align-self: center; }
+.persona-select {
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--gray-02); background: var(--sanas-white); color: var(--sanas-black);
+  border-radius: 999px; padding: 7px 12px;
+}
 .chip {
   border: 1px solid var(--gray-02); background: var(--sanas-white); color: var(--sanas-black);
   border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit;

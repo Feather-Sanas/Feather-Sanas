@@ -99,11 +99,13 @@
     </header>
 
     <div class="persona-bar" role="group" aria-label="Tell Sani who you are">
-      <span class="lbl">I’m a…</span>
-      <button class="chip" data-persona="buyer_cx"><span class="em">◆</span> CX buyer</button>
-      <button class="chip" data-persona="buyer_it"><span class="em">■</span> IT / Security</button>
-      <button class="chip" data-persona="developer"><span class="em">▸</span> Developer</button>
-      <button class="chip" data-persona="curious"><span class="em">○</span> Just looking</button>
+      <label class="lbl" for="personaSelect">I’m a…</label>
+      <select class="persona-select" id="personaSelect" aria-label="Tell Sani who you are">
+        <option value="curious">Just looking</option>
+        <option value="buyer_cx">CX buyer</option>
+        <option value="buyer_it">IT / Security</option>
+        <option value="developer">Developer</option>
+      </select>
       <div class="persona-actions">
         <button class="persona-action" data-open-playground aria-label="Speak to a model">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/></svg>
