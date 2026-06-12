@@ -186,6 +186,32 @@ def _twiml_ivr() -> str:
     )
 
 
+# DTMF model menu used during a dial-in call (digit -> model; "0" = Sanas off)
+DTMF_MODELS = {"1": "AGENTIC_VI_GT_NC", "2": "SE2.2", "3": "VI_G_NC3.0"}
+DTMF_MENU = ("Press 1 for noise cancellation, 2 for speech enhancement, "
+             "3 for voice isolation, or 0 to turn Sanas off.")
+
+
+def _twiml_dialin() -> str:
+    # Inbound: ask the caller to key in the number they want to reach.
+    action = f"{PUBLIC_BASE}/api/twilio/dialin-connect"
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'<Gather input="dtmf" finishOnKey="#" timeout="12" action="{escape(action)}" method="POST">'
+            '<Say>Welcome to Sanas. Enter the number you would like to call, '
+            'with country code, then press pound.</Say>'
+            '</Gather>'
+            '<Say>No number entered. Goodbye.</Say></Response>')
+
+
+def _twiml_dialin_connect(call_sid: str, to: str, model: str | None = None) -> str:
+    if not to:
+        return _twiml_dialin()
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'<Say>Connecting you now. {DTMF_MENU}</Say>'
+            f'<Connect><Stream url="{escape(_bridge_ws(call_sid, "caller", model or SANAS_MODEL, to))}"/></Connect>'
+            '</Response>')
+
+
 @router.api_route("/api/twilio/voice", methods=["GET", "POST"])
 async def twilio_voice(request: Request) -> Response:
     # mode may arrive as a query param (REST callback Url) or a POST form field
@@ -198,7 +224,7 @@ async def twilio_voice(request: Request) -> Response:
                 params.setdefault(k, v)
         except Exception:
             pass
-    mode = params.get("mode") or ("dial" if params.get("To") else "ivr")
+    mode = params.get("mode") or ("dial" if params.get("To") else "dialin")
     model = params.get("model")
     if mode == "bridge":          # browser leg of the in-path bridge
         body = _twiml_bridge_caller((params.get("bridge") or "").strip(),
@@ -211,9 +237,22 @@ async def twilio_voice(request: Request) -> Response:
         body = _twiml_human()
     elif mode == "sanas":
         body = _twiml_sanas_demo(model)
-    else:
+    elif mode == "ivr":
         body = _twiml_ivr()
+    else:
+        body = _twiml_dialin()        # default for an inbound call to the number
     return Response(content=body, media_type="application/xml")
+
+
+@router.post("/api/twilio/dialin-connect")
+async def twilio_dialin_connect(request: Request) -> Response:
+    form = await request.form()
+    digits = "".join(ch for ch in (form.get("Digits") or "") if ch.isdigit())
+    call_sid = (form.get("CallSid") or "").strip() or f"dialin-{int(time.time())}"
+    if not digits:
+        return Response(_twiml_dialin(), media_type="application/xml")
+    to = ("+1" + digits) if len(digits) == 10 else ("+" + digits)   # 10 digits → assume US
+    return Response(_twiml_dialin_connect(call_sid, to, SANAS_MODEL), media_type="application/xml")
 
 
 @router.post("/api/twilio/gather")
@@ -374,6 +413,67 @@ async def twilio_media(ws: WebSocket):
             except Exception: pass
 
 
+def _open_sess(model: str):
+    return sanas_client.client.create_stream(model, sanas_client.MODEL_SAMPLE_RATES.get(model, TW_SR))
+
+
+def _process_caller(br: dict, payload_b64: str):
+    """μ-law(8k) caller frame → current Sanas model (resampled if the model runs at
+    16k) → μ-law(8k). Returns None while buffering a partial frame, or the raw
+    payload when Sanas is off / no session."""
+    sess = br.get("sess")
+    if sess is None or not br.get("enabled", True):
+        return payload_b64
+    sr = sess.sample_rate
+    pcm = audioop.ulaw2lin(base64.b64decode(payload_b64), 2)
+    if sr != TW_SR:
+        pcm, br["up"] = audioop.ratecv(pcm, 2, 1, TW_SR, sr, br.get("up"))
+    ints = np.frombuffer(pcm, dtype=np.int16)
+    resid = br.get("resid")
+    buf = np.concatenate([resid, ints]) if (resid is not None and len(resid)) else ints
+    fr = sess.frame_samples
+    n = len(buf) // fr
+    if n == 0:
+        br["resid"] = buf
+        return None
+    chunk, br["resid"] = buf[:n * fr], buf[n * fr:]
+    floats = chunk.astype(np.float32) / 32768.0
+    out = []
+    for i in range(n):
+        out.extend(sess.process(floats[i * fr:(i + 1) * fr].tolist()))
+    arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+    pcm_out = arr.tobytes()
+    if sr != TW_SR:
+        pcm_out, br["down"] = audioop.ratecv(pcm_out, 2, 1, sr, TW_SR, br.get("down"))
+    return base64.b64encode(audioop.lin2ulaw(pcm_out, 2)).decode()
+
+
+async def _bridge_dtmf(br: dict, digit: str, loop):
+    """In-call DTMF: 0 = Sanas off; 1/2/3 = switch model (recreates the processor)."""
+    if digit == "0":
+        br["enabled"] = False
+        return
+    model = DTMF_MODELS.get(digit)
+    if not model:
+        return
+    br["enabled"] = True
+    if model == br.get("model") and br.get("sess") is not None:
+        return
+    old = br.get("sess")
+    br["sess"] = None
+    if old is not None:
+        try: await loop.run_in_executor(None, old.close)
+        except Exception: pass
+    br["up"] = br["down"] = None
+    br["resid"] = None
+    if sanas_client.client.mode == "real" and _AUDIOOP:
+        try:
+            br["sess"] = await loop.run_in_executor(None, _open_sess, model)
+            br["model"] = model
+        except Exception:
+            br["sess"] = None
+
+
 @router.websocket("/api/twilio/bridge")
 async def twilio_bridge(ws: WebSocket):
     """True in-path bridge: the browser ('caller') and the dialed phone ('callee')
@@ -392,7 +492,6 @@ async def twilio_bridge(ws: WebSocket):
     to = qp.get("to")
     br = BRIDGES.setdefault(bid, {"enabled": True})
     stream_sid = None
-    sess = None
     try:
         while True:
             msg = json.loads(await ws.receive_text())
@@ -403,25 +502,34 @@ async def twilio_bridge(ws: WebSocket):
                 br[f"{role}_sid"] = stream_sid
                 if role == "caller":
                     br.setdefault("enabled", True)
+                    br["model"] = model
+                    br["up"] = br["down"] = None
+                    br["resid"] = None
                     if sanas_client.client.mode == "real" and _AUDIOOP:
                         try:
-                            sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, TW_SR)
+                            br["sess"] = await loop.run_in_executor(None, _open_sess, model)
                         except Exception:
-                            sess = None
-                    br["sess"] = sess
+                            br["sess"] = None
                     # dial the person; their leg streams back as role=callee
                     if to and _cfg()["phone_callback"]:
                         url = f"{PUBLIC_BASE}/api/twilio/voice?mode=bridgeleg&id={urllib.parse.quote(bid)}&model={urllib.parse.quote(model)}"
                         try:
                             await loop.run_in_executor(None, _create_call, to, url)
                         except Exception:
-                            pass  # callee never joins; caller still hears themselves via nothing
+                            pass  # callee never joins
+            elif ev == "dtmf" and role == "caller":
+                digit = (msg.get("dtmf") or {}).get("digit")
+                if digit:
+                    await _bridge_dtmf(br, digit, loop)
             elif ev == "media":
                 payload = msg["media"]["payload"]
                 if role == "caller":
-                    out_payload = payload
-                    if sess is not None and _AUDIOOP and br.get("enabled", True):
-                        out_payload = await loop.run_in_executor(None, _sanas_mulaw, sess, payload)
+                    try:
+                        out_payload = await loop.run_in_executor(None, _process_caller, br, payload)
+                    except Exception:
+                        out_payload = payload         # never drop the call on a transient (e.g. mid-switch)
+                    if out_payload is None:
+                        continue                      # buffering a partial (resampled) frame
                     tgt, tsid = br.get("callee"), br.get("callee_sid")
                 else:  # callee → caller, relayed as-is
                     out_payload, tgt, tsid = payload, br.get("caller"), br.get("caller_sid")
