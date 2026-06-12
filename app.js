@@ -936,7 +936,8 @@ function twilioConnectNode() {
   const statusLine = () => el('div', { class: 'pg-status' });
 
   /* mid-call on/off — flips Sanas processing on the live call by CallSid */
-  function callToggle(callSid) {
+  /* payload is {call_sid} (single-leg) or {bridge_id} (in-path bridge) */
+  function callToggle(payload) {
     let enabled = true;
     const b = el('button', { class: 'live-toggle on' }, 'Model: ON');
     b.addEventListener('click', async () => {
@@ -944,7 +945,7 @@ function twilioConnectNode() {
       b.classList.toggle('on', enabled); b.textContent = 'Model: ' + (enabled ? 'ON' : 'OFF');
       try {
         await fetch(SAN_API + '/api/twilio/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ call_sid: callSid, enabled }) });
+          body: JSON.stringify({ ...payload, enabled }) });
       } catch {}
       emit({ event: 'twilio_toggle', enabled });
     });
@@ -960,7 +961,7 @@ function twilioConnectNode() {
       const d = await r.json();
       if (d.ok) {
         status.textContent = `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : 'use the IVR'}. [${d.status || 'queued'}]`;
-        if (d.sid && toggleMount && mode !== 'human') toggleMount.appendChild(callToggle(d.sid));
+        if (d.sid && toggleMount && mode !== 'human') toggleMount.appendChild(callToggle({ call_sid: d.sid }));
       } else if (/21219|unverified|trial account/i.test(d.detail || '')) {
         // Twilio trial: outbound calls only reach verified numbers
         status.innerHTML = "That number isn’t verified on your Twilio trial, so it can’t be dialed. " +
@@ -1002,6 +1003,9 @@ function twilioConnectNode() {
     const toInput = el('input', { class: 'tw-phone', type: 'tel',
       placeholder: '+1 206 555 0123 — number to call (blank = hear yourself)', 'aria-label': 'Number to call' });
     const modelSel = el('select', { class: 'pg-langsel', 'aria-label': 'Sanas model' });
+    const inpath = el('input', { type: 'checkbox', id: 'tw-inpath' });
+    const inpathRow = el('label', { class: 'tw-inpath', for: 'tw-inpath' }, inpath,
+      el('span', {}, 'Sanas in-path — the person hears your voice cleaned (beta)'));
     const st = statusLine();
     const tgl = el('div', { class: 'tw-toggle-mount' });
     const btn = el('button', { class: 'pg-input-btn live' }, 'Talk in the browser');
@@ -1024,14 +1028,26 @@ function twilioConnectNode() {
         device = new Twilio.Device(t.token, { logLevel: 'error' });
         const to = toInput.value.trim();
         const model = modelSel.value;
-        const params = to ? { To: to, model, mode: 'dial' } : { model, mode: 'sanas' };
+        let params, togglePayload = null;
+        if (to && inpath.checked) {
+          const bid = 'br-' + uuid();
+          params = { mode: 'bridge', bridge: bid, To: to, model };
+          togglePayload = { bridge_id: bid };
+        } else if (to) {
+          params = { To: to, model, mode: 'dial' };
+        } else {
+          params = { model, mode: 'sanas' };
+        }
         st.textContent = to ? `Calling ${to}…` : 'Connecting…';
         conn = await device.connect({ params });
         btn.textContent = '■ Hang up';
-        st.textContent = to ? `In call with ${to} — speak through the app (Sanas ${model} on the audio).`
-                            : `In call — hearing yourself through Sanas ${model}.`;
+        st.textContent = !to ? `In call — hearing yourself through Sanas ${model}.`
+          : (inpath.checked ? `Bridging to ${to} — they hear your voice cleaned by Sanas ${model} (beta).`
+                            : `In call with ${to} — speak through the app (Sanas ${model} on the audio).`);
         const csid = conn.parameters && conn.parameters.CallSid;
-        tgl.innerHTML = ''; if (csid) tgl.appendChild(callToggle(csid));
+        tgl.innerHTML = '';
+        if (togglePayload) tgl.appendChild(callToggle(togglePayload));
+        else if (csid) tgl.appendChild(callToggle({ call_sid: csid }));
         conn.on('error', (e) => { st.textContent = 'Call error: ' + (e.message || e); });
         conn.on('disconnect', () => { conn = null; btn.textContent = 'Talk in the browser'; st.textContent = 'Call ended.'; tgl.innerHTML = ''; });
       } catch (e) { st.textContent = 'Browser call failed: ' + (e.message || e); }
@@ -1039,6 +1055,7 @@ function twilioConnectNode() {
     wrap.append(
       el('div', { class: 'tw-or' }, 'or talk right here — through the app'),
       el('div', { class: 'tw-row' }, toInput),
+      inpathRow,
       el('div', { class: 'tw-row' }, el('span', { class: 'tw-toggle-l' }, 'Model:'), modelSel, btn),
       st, tgl);
     return wrap;

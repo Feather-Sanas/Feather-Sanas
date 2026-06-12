@@ -471,3 +471,5 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
   color: var(--gray-04); text-decoration: underline; text-underline-offset: 2px; padding: 6px 4px;
 }
 .persona-link:hover { color: var(--sanas-black); }
+.tw-inpath { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--gray-04); cursor:pointer; }
+.tw-inpath input { accent-color: var(--sanas-green-deep); }
