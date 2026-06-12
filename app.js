@@ -718,7 +718,7 @@ function playgroundNode() {
     catch { setStatus('Could not load sample.'); }
   });
   const liveBtn = el('button', { class: 'pg-input-btn live',
-    html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/></svg> Speak live' });
+    html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/></svg> Speak live' });
   liveBtn.addEventListener('click', () => {
     if (liveMount.firstChild) { liveMount.innerHTML = ''; liveBtn.classList.remove('open'); return; }
     liveMount.appendChild(liveNode()); liveBtn.classList.add('open');
