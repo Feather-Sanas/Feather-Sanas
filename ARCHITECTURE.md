@@ -86,7 +86,7 @@ ASCII fallback:
 | Component | File | Responsibility |
 |---|---|---|
 | **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sani chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
-| **Front-end app** | `app.js` | Rule engine (retrieval, persona, skeptic, guardrails), rich UI nodes (recommendation, audio showroom, ROI, code, 8-layer trace, **Playground**, **live mic**), Web-Audio capture/playback, ASR/chat clients. |
+| **Front-end app** | `app.js` | Rule engine (retrieval, **6-persona** classify/dropdown — Curious / CX / Telco / IT-Security / Developer / Data-Scientist, skeptic, guardrails), rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
 | **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). Mock fallback when the SDK/creds are absent. |
 | **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Returns `None` to signal the client to fall back to the rule engine. |
@@ -147,7 +147,10 @@ Browser ──file──► POST /api/process?model=SE2.2
                     ├─ ingress probe (SNR / clip / silence / VAD)
                     ├─ sanas_client.process()  → RemoteSDK AudioProcessor, fed at 20ms cadence + drain
                     └─ WAV out + X-Sanas-* headers (mode, model, snr, timings, truncated)
-Browser ◄─ decode both sides → before/after player (Play/Stop) + measured trace + ASR
+Browser ◄─ decode both sides → before/after player (Play/Stop) + spectrogram (client STFT)
+            + measured trace + ASR
+            └─ "Analyze against" model picker: re-POST the original clip with ?model=NAME,
+               swap proc audio + redraw waveform / spectrogram / ASR (no re-upload)
 ```
 
 ### 4.3 Live mic (real-time streaming)
@@ -308,14 +311,21 @@ The bridge is the only way Sanas is truly *in-path* on a two-party call (`<Conne
 both legs); a `<Dial>` fork can run/measure the model but can't re-inject. See `TWILIO_SETUP.md`.
 
 ### Grounded citations (`server/webindex.py` + `scripts/index_site.py`)
-`scripts/index_site.py` crawls **sanas.ai** (product/industry/science/dev pages + the
-blog & news posts) into `server/web_index.json`. On each chat turn the backend retrieves
-the top-matching pages, passes them to Claude as grounding context, and returns them as
-**clickable source links** the UI renders under the answer.
+`scripts/index_site.py` crawls **sanas.ai** (product/industry/dev pages, the **`/science`
+articles**, and blog & news posts) into `server/web_index.json`. On each chat turn the
+backend retrieves the top-matching pages, passes them to Claude as grounding context, and
+returns them as **clickable source links** the UI renders under the answer.
+
+Retrieval is **persona-biased**: `webindex.search(query, prefer=…)` boosts a section for
+the right persona. The **Data Scientist** persona passes `prefer="/science"`, so its
+answers are grounded in and cite the Sanas science write-ups (8→16 kHz upscaling, VAD,
+ASR-optimized NC). The audio showroom's before/after clips are the **real sanas.ai demo
+audio** streamed from the Sanas media CDN (synth fallback if unreachable).
 
 ```
-sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query)──▶ top pages
+sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query, prefer)──▶ top pages
    /api/chat[/stream]:  llm.chat(..., context=pages)  +  X-San-Sources header → link chips
+   persona=data_scientist → prefer="/science" → science articles float to the top
 ```
 
 ### File-map additions

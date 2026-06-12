@@ -16,6 +16,30 @@ engine. To make real calls you need a public URL + a few Twilio objects.
 
 ---
 
+## ⚠️ Trial accounts can only dial *verified* numbers
+
+This is the single most common surprise. On a **Trial** Twilio account, every outbound
+or bridged leg may only reach a number that has been added as a **Verified Caller ID**.
+Dialling anything else fails with **error 21219** — the dial-in flow will appear to
+"only let you call one number" (the verified one).
+
+> Current project account `AC2417…dfa6` is **type: Trial**, with a single verified
+> number: **+1 801-850-3440**. That's why the dial-in bridge only connects to it.
+>
+> Check anytime:
+> ```bash
+> cd server && set -a && . ./.env && set +a
+> curl -s -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+>   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID.json" \
+>   | python3 -c "import sys,json;d=json.load(sys.stdin);print('type:',d['type'])"   # Trial | Full
+> ```
+
+**Fix:** upgrade the account, or verify each destination number — see
+[Lifting the trial restriction](#lifting-the-trial-restriction) below. Inbound (you
+calling *into* the Twilio number) always works on trial.
+
+---
+
 ## What each path needs
 
 | Path | Needs | Works with **test** creds? |
@@ -92,7 +116,40 @@ curl -s http://127.0.0.1:8000/api/twilio/config | python3 -m json.tool
    - **0** → Sanas off (raw line)
 
 > **Trial limit:** the dialed destination must be a **Verified Caller ID** (error 21219)
-> or the account upgraded. Inbound (you calling in) works on trial with the trial notice.
+> or the account upgraded — see below. Inbound (you calling in) works on trial.
+
+---
+
+## Lifting the trial restriction
+
+Two options:
+
+### Option A — Upgrade the account (recommended; removes the limit entirely)
+Console → **Admin / Billing → Upgrade**, add a payment method. A full account can dial
+**any** number; no per-number verification needed. (Billing details are yours to enter —
+this can't be done via the API.) After upgrading, re-check `type: Full` with the command
+in the trial callout above. Nothing in `server/.env` changes — the same SID/token now
+work without the restriction.
+
+### Option B — Verify specific destination numbers (stay on the free trial)
+Each number you want to reach must complete a one-time verification (Twilio calls it and
+reads a 6-digit code the recipient enters). Do it in the console
+(**Phone Numbers → Verified Caller IDs → Add**) or via the API:
+
+```bash
+cd server && set -a && . ./.env && set +a
+# 1) start verification — Twilio calls the number and speaks a 6-digit code
+curl -s -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" -X POST \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/OutgoingCallerIds.json" \
+  --data-urlencode "PhoneNumber=+1XXXXXXXXXX" --data-urlencode "FriendlyName=demo dest"
+#    → the call states a ValidationCode; the recipient keys it into the phone to confirm.
+# 2) list verified numbers (confirm it stuck)
+curl -s -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/OutgoingCallerIds.json" \
+  | python3 -c "import sys,json;[print(' ',c['phone_number']) for c in json.load(sys.stdin)['outgoing_caller_ids']]"
+```
+Trial calls also play a short "trial account" preamble before connecting — that goes away
+on upgrade too.
 
 ---
 
