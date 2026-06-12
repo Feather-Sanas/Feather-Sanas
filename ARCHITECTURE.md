@@ -281,3 +281,48 @@ graph TD
   G -->|jsdom loads| A
   SP -->|reads| L
 ```
+
+---
+
+## Addendum — telephony (Twilio) & grounded citations (sanas.ai index)
+
+### Twilio voice (`server/twilio_routes.py`)
+Connect a caller to a human / IVR / another phone, with Sanas on the call.
+
+| Endpoint | Role |
+|---|---|
+| `GET/POST /api/twilio/voice` | TwiML. Inbound (no mode) → **dial-in prompt**; `mode=ivr\|human\|sanas\|dial\|bridge\|bridgeleg` |
+| `POST /api/twilio/dialin-connect` | inbound: gather the keyed number → bridge to it |
+| `WS /api/twilio/media` | single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back |
+| `WS /api/twilio/bridge` | **two-leg in-path bridge**: caller→Sanas→callee; relays callee→caller; reads **DTMF** to switch model / toggle; resamples 8 kHz ↔ 16 kHz models |
+| `POST /api/twilio/toggle {call_sid\|bridge_id}` | mid-call Sanas on/off |
+| `GET /api/twilio/token` · `POST /api/twilio/call` | browser Voice access token · REST click-to-call |
+| `GET /api/twilio/config` | which paths are configured |
+
+```
+Caller ─PSTN/WebRTC─ Twilio ─Media Streams (μ-law 8k)─ /api/twilio/bridge
+                                                          caller audio → Sanas(model) → callee
+                                                          DTMF 1/2/3 → switch model · 0 → off
+```
+The bridge is the only way Sanas is truly *in-path* on a two-party call (`<Connect><Stream>`
+both legs); a `<Dial>` fork can run/measure the model but can't re-inject. See `TWILIO_SETUP.md`.
+
+### Grounded citations (`server/webindex.py` + `scripts/index_site.py`)
+`scripts/index_site.py` crawls **sanas.ai** (product/industry/science/dev pages + the
+blog & news posts) into `server/web_index.json`. On each chat turn the backend retrieves
+the top-matching pages, passes them to Claude as grounding context, and returns them as
+**clickable source links** the UI renders under the answer.
+
+```
+sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query)──▶ top pages
+   /api/chat[/stream]:  llm.chat(..., context=pages)  +  X-San-Sources header → link chips
+```
+
+### File-map additions
+```
+server/twilio_routes.py   # Twilio voice: IVR, dial-in, media bridge, DTMF model switch
+server/webindex.py        # lexical retrieval over the indexed site
+server/web_index.json     # indexed sanas.ai content (public; regenerate with the script)
+scripts/index_site.py     # crawler → web_index.json
+TWILIO_SETUP.md           # go-live checklist for the telephony paths
+```

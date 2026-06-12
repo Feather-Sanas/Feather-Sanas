@@ -92,17 +92,27 @@ PERSONA_BLOCKS = {
 }
 
 
-def _system_blocks(persona: str | None, skeptic: float) -> list[dict]:
+def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | None = None) -> list[dict]:
     persona_block = PERSONA_BLOCKS.get(persona or "curious", PERSONA_BLOCKS["curious"])
     if skeptic >= 0.5:
         persona_block += " The user is signalling skepticism — lead with the most convincing concrete evidence (a before/after or a specific number), then the science."
-    return [
+    blocks = [
         {"type": "text", "text": SHARED_SYSTEM, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": persona_block},
     ]
+    if context:
+        # live sanas.ai retrieval — keep AFTER the cached prefix (it varies per turn)
+        lines = ["Relevant pages from sanas.ai for THIS question. Ground your answer in "
+                 "them when applicable and weave the most relevant one into your reply "
+                 "naturally (the interface shows the clickable links, so don't paste raw URLs):"]
+        for c in context:
+            lines.append(f"- {c['title']} — {c['url']}\n  {c.get('snippet', '')}")
+        blocks.append({"type": "text", "text": "\n".join(lines)})
+    return blocks
 
 
-def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0) -> str | None:
+def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
+         context: list[dict] | None = None) -> str | None:
     """Return Sani's reply text, or None to signal the client to use its fallback."""
     client = _get_client()
     if client is None:
@@ -110,14 +120,15 @@ def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0)
     try:
         resp = client.messages.create(
             model=MODEL, max_tokens=1024,
-            system=_system_blocks(persona, skeptic), messages=messages,
+            system=_system_blocks(persona, skeptic, context), messages=messages,
         )
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:
         return None
 
 
-def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float = 0.0):
+def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
+                context: list[dict] | None = None):
     """Yield Sani's reply as text deltas (token-by-token). Yields nothing if the
     client/LLM is unavailable, signalling the caller to fall back."""
     client = _get_client()
@@ -126,7 +137,7 @@ def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float
     try:
         with client.messages.stream(
             model=MODEL, max_tokens=1024,
-            system=_system_blocks(persona, skeptic), messages=messages,
+            system=_system_blocks(persona, skeptic, context), messages=messages,
         ) as stream:
             for text in stream.text_stream:
                 yield text

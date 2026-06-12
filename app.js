@@ -196,19 +196,22 @@ async function llmChat(history, persona, skeptic) {
     return data.mode === 'llm' ? data.text : null;
   } catch { return null; }
 }
-/* Streaming variant: calls onDelta(text) as tokens arrive; resolves with the full
-   text, or null to signal fallback (no key / error / empty). */
+/* Streaming variant: calls onDelta(text) as tokens arrive. Resolves with
+   { text, sources } — text is null on fallback/error; sources are the cited
+   sanas.ai pages ({title,url}) from the X-San-Sources header (present either way). */
 async function llmChatStream(history, persona, skeptic, onDelta) {
   const msgs = history.filter(h => h.text)
     .map(h => ({ role: h.role === 'san' ? 'assistant' : 'user', content: h.text }));
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
-  if (!msgs.length) return null;
+  if (!msgs.length) return { text: null, sources: [] };
   try {
     const r = await fetch(SAN_API + '/api/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: msgs.slice(-12), persona, skeptic }),
     });
-    if (!r.ok || r.headers.get('X-San-Mode') !== 'llm' || !r.body) return null;
+    let sources = [];
+    try { sources = JSON.parse(r.headers.get('X-San-Sources') || '[]'); } catch {}
+    if (!r.ok || r.headers.get('X-San-Mode') !== 'llm' || !r.body) return { text: null, sources };
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let full = '';
@@ -218,8 +221,8 @@ async function llmChatStream(history, persona, skeptic, onDelta) {
       const chunk = dec.decode(value, { stream: true });
       if (chunk) { full += chunk; onDelta(chunk); }
     }
-    return full.trim() || null;
-  } catch { return null; }
+    return { text: full.trim() || null, sources };
+  } catch { return { text: null, sources: [] }; }
 }
 const decodeAudio = (arrBuf) => audioCtx().decodeAudioData(arrBuf.slice(0));
 function playBuffer(buffer) {
@@ -462,6 +465,20 @@ function srcChips(ids) {
       c.src, el('span', { class: 'conf' }, c.url));
   });
   return pills.length ? el('div', { class: 'sources' }, ...pills) : null;
+}
+
+/* clickable links to real sanas.ai pages cited for an answer (F1, live index) */
+const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.5-2.5a5 5 0 0 0-7.07-7.07L11 5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.43 13.5a5 5 0 0 0 7.07 7.07L13 19"/></svg>';
+function linkChips(sources) {
+  if (!sources || !sources.length) return null;
+  const row = el('div', { class: 'src-links' });
+  sources.forEach(s => {
+    const a = el('a', { class: 'src-link', href: s.url, target: '_blank', rel: 'noopener noreferrer', title: s.url },
+      el('span', { class: 'sl-ico', html: LINK_SVG }), document.createTextNode(s.title || s.url));
+    a.addEventListener('click', () => emit({ event: 'source_click', url: s.url }));
+    row.appendChild(a);
+  });
+  return el('div', { class: 'src-links-wrap' }, el('div', { class: 'src-links-label' }, 'Sources · sanas.ai'), row);
 }
 
 /* the canonical opening, persona-tunable (§5.3) */
@@ -1327,6 +1344,9 @@ function addMessage(role, content, extras = {}) {
   if (extras.sources && extras.sources.length) {
     const chips = srcChips(extras.sources); if (chips) wrap.appendChild(chips);
   }
+  if (extras.links && extras.links.length) {
+    const c = linkChips(extras.links); if (c) wrap.appendChild(c);
+  }
   (extras.nodes || []).forEach(n => wrap.appendChild(n));
   if (extras.handoff) {
     wrap.appendChild(el('div', { class: 'privacy-note' }, 'Transcript + detected persona will be attached to the handoff. Uploaded audio is processed in-memory and deleted within 24h by default.'));
@@ -1354,6 +1374,9 @@ function addStreamingMessage() {
       bubble.innerHTML = renderMarkdown(fullText);
       if (extras.sources && extras.sources.length) {
         const c = srcChips(extras.sources); if (c) wrap.appendChild(c);
+      }
+      if (extras.links && extras.links.length) {
+        const c = linkChips(extras.links); if (c) wrap.appendChild(c);
       }
       log().scrollTop = log().scrollHeight;
     },
@@ -1438,23 +1461,24 @@ async function handleUserInput(text) {
   if (!r.nodes && !r.handoff && !r.refusal) {
     hideTyping();
     const sm = addStreamingMessage();
-    let full = '';
-    try { full = (await llmChatStream(state.history, state.persona, sk, t => sm.append(t))) || ''; }
-    catch { full = ''; }
-    if (full) {
-      sm.finalize(full, { sources: r.sources });
-      state.history.push({ role: 'san', text: full });
+    let res = { text: null, sources: [] };
+    try { res = await llmChatStream(state.history, state.persona, sk, t => sm.append(t)); }
+    catch { res = { text: null, sources: [] }; }
+    if (res && res.text) {
+      sm.finalize(res.text, { links: res.sources });   // real sanas.ai source links
+      state.history.push({ role: 'san', text: res.text });
       setSuggestions(r.suggestions);
       emitTurn('llm');
       busy = false;
       return;
     }
     sm.remove();  // LLM unavailable/empty — fall through to the canned reply
+    if (res && res.sources && res.sources.length) r.links = res.sources;  // still cite pages
   }
 
   emitTurn('rule');
   hideTyping();
-  addMessage('san', r.text, { sources: r.sources, nodes: r.nodes, handoff: r.handoff });
+  addMessage('san', r.text, { sources: r.sources, nodes: r.nodes, handoff: r.handoff, links: r.links });
   state.history.push({ role: 'san', text: r.text });
   setSuggestions(r.suggestions);
   busy = false;

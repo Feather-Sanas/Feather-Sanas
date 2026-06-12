@@ -53,6 +53,7 @@ _load_dotenv()
 
 import asr  # noqa: E402  (after dotenv load)
 import llm  # noqa: E402
+import webindex  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
 from twilio_routes import router as twilio_router  # noqa: E402
 
@@ -88,7 +89,15 @@ def health() -> JSONResponse:
     h["llm_model"] = llm.MODEL if llm.available() else None
     h["asr_available"] = asr.available()
     h["asr_model"] = asr.MODEL_NAME if asr.available() else None
+    h["web_index"] = webindex.count()
     return JSONResponse(h)
+
+
+def _last_user(msgs: list[dict]) -> str:
+    for m in reversed(msgs):
+        if m["role"] == "user":
+            return m["content"]
+    return ""
 
 
 class ChatTurn(BaseModel):
@@ -112,11 +121,13 @@ def chat(req: ChatReq) -> JSONResponse:
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
-    text = llm.chat(msgs, req.persona, req.skeptic)
+    sources = webindex.search(_last_user(msgs), k=3)
+    text = llm.chat(msgs, req.persona, req.skeptic, context=sources)
     return JSONResponse({
         "text": text,
         "mode": "llm" if text else "fallback",
         "model": llm.MODEL if text else None,
+        "sources": [{"title": s["title"], "url": s["url"]} for s in sources],
     })
 
 
@@ -130,15 +141,21 @@ def chat_stream(req: ChatReq):
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
+    sources = webindex.search(_last_user(msgs), k=3)
+    src_hdr = json.dumps([{"title": s["title"], "url": s["url"]} for s in sources])  # ASCII, one line
     if not llm.available():
-        return Response(content=b"", media_type="text/plain", headers={"X-San-Mode": "fallback"})
+        return Response(content=b"", media_type="text/plain",
+                        headers={"X-San-Mode": "fallback", "X-San-Sources": src_hdr,
+                                 "Access-Control-Expose-Headers": "*"})
 
     def gen():
-        for delta in llm.chat_stream(msgs, req.persona, req.skeptic):
+        for delta in llm.chat_stream(msgs, req.persona, req.skeptic, context=sources):
             yield delta
 
     return StreamingResponse(gen(), media_type="text/plain; charset=utf-8",
                              headers={"X-San-Mode": "llm", "X-Sanas-Model": llm.MODEL,
+                                      "X-San-Sources": src_hdr,
+                                      "Access-Control-Expose-Headers": "*",
                                       "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
