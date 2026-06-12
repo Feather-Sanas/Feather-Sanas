@@ -1065,12 +1065,22 @@ function twilioConnectNode() {
   function loadTwilioSDK() {
     if (window.Twilio && window.Twilio.Device) return Promise.resolve();
     if (_sdkP) return _sdkP;
-    _sdkP = new Promise((res, rej) => {
+    // sdk.twilio.com returns 403 for direct <script> loads; jsDelivr serves the
+    // same @twilio/voice-sdk UMD build (exposes global Twilio.Device).
+    const urls = [
+      'https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.12.4/dist/twilio.min.js',
+      'https://unpkg.com/@twilio/voice-sdk@2.12.4/dist/twilio.min.js',
+    ];
+    const tryLoad = (i) => new Promise((res, rej) => {
+      if (i >= urls.length) return rej(new Error('SDK load failed'));
       const s = document.createElement('script');
-      s.src = 'https://sdk.twilio.com/js/voice/releases/2.12.4/twilio.min.js';
-      s.onload = res; s.onerror = () => rej(new Error('SDK load failed'));
+      s.src = urls[i];
+      s.onload = () => (window.Twilio && window.Twilio.Device)
+        ? res() : tryLoad(i + 1).then(res, rej);
+      s.onerror = () => tryLoad(i + 1).then(res, rej);
       document.head.appendChild(s);
     });
+    _sdkP = tryLoad(0).catch((e) => { _sdkP = null; throw e; });  // allow retry without reload
     return _sdkP;
   }
   return root;
