@@ -440,13 +440,13 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
   background: linear-gradient(90deg, var(--sanas-green), var(--sanas-green-deep)); transition: width .08s linear; }
 .live-meter:first-child .lm-track i { background: var(--gray-03); }
 
-/* "Speak to a model" action in the persona bar (not a persona chip) */
+/* "Speak to a model" / "Speak to a person" actions in the persona bar */
+.persona-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
 .persona-action {
   display: inline-flex; align-items: center; gap: 6px;
   font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
   border: 0; background: transparent; color: var(--sanas-green-deep);
   border-radius: 999px; padding: 6px 10px; white-space: nowrap;
-  margin-left: auto;   /* push to the right edge of the persona bar */
 }
 .persona-action svg { width: 14px; height: 14px; }
 .persona-action:hover { background: rgba(68, 236, 160, .14); }
@@ -465,3 +465,9 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .pg-input-btn:disabled { opacity: .45; cursor: default; }
 .tw-toggle-l { font-size: 12px; color: var(--gray-04); }
 .tw-callctl { margin-top: 4px; }
+/* "Speak to a person" text link beside the model button */
+.persona-link {
+  font: inherit; font-size: 12px; cursor: pointer; border: 0; background: transparent;
+  color: var(--gray-04); text-decoration: underline; text-underline-offset: 2px; padding: 6px 4px;
+}
+.persona-link:hover { color: var(--sanas-black); }

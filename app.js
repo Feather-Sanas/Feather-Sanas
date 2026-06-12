@@ -958,11 +958,17 @@ function twilioConnectNode() {
     try {
       const r = await fetch(SAN_API + '/api/twilio/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, mode }) });
       const d = await r.json();
-      status.textContent = d.ok
-        ? `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : 'use the IVR'}. [${d.status || 'queued'}]`
-        : 'Could not place the call: ' + (d.detail || 'error');
-      // mid-call toggle is meaningful for the modes that route through the Sanas stream
-      if (d.ok && d.sid && toggleMount && mode !== 'human') toggleMount.appendChild(callToggle(d.sid));
+      if (d.ok) {
+        status.textContent = `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : 'use the IVR'}. [${d.status || 'queued'}]`;
+        if (d.sid && toggleMount && mode !== 'human') toggleMount.appendChild(callToggle(d.sid));
+      } else if (/21219|unverified|trial account/i.test(d.detail || '')) {
+        // Twilio trial: outbound calls only reach verified numbers
+        status.innerHTML = "That number isn’t verified on your Twilio trial, so it can’t be dialed. " +
+          'Verify it under <a href="https://console.twilio.com/us1/develop/phone-numbers/manage/verified" target="_blank" rel="noopener">Verified Caller IDs</a> ' +
+          '(or upgrade the account) — or use <strong>Talk in the browser</strong> below, which needs no verification.';
+      } else {
+        status.textContent = 'Could not place the call: ' + (d.detail || 'error');
+      }
       emit({ event: 'twilio_call', mode, ok: !!d.ok });
     } catch { status.textContent = 'Call request failed — is the backend running?'; }
   }
@@ -993,10 +999,21 @@ function twilioConnectNode() {
 
   function browserVoice() {
     const wrap = el('div', { class: 'tw-browser' });
+    const toInput = el('input', { class: 'tw-phone', type: 'tel',
+      placeholder: '+1 206 555 0123 — number to call (blank = hear yourself)', 'aria-label': 'Number to call' });
+    const modelSel = el('select', { class: 'pg-langsel', 'aria-label': 'Sanas model' });
     const st = statusLine();
     const tgl = el('div', { class: 'tw-toggle-mount' });
     const btn = el('button', { class: 'pg-input-btn live' }, 'Talk in the browser');
     let device = null, conn = null;
+
+    // model picker — test different models on the call
+    fetch(SAN_API + '/api/models').then(r => r.json()).then(d => {
+      (d.models || []).forEach(m => modelSel.appendChild(el('option', { value: m.name }, m.label)));
+      modelSel.value = 'AGENTIC_VI_GT_NC';                       // telephony model by default
+      if (!modelSel.value && d.models && d.models[0]) modelSel.value = d.models[0].name;
+    }).catch(() => {});
+
     btn.addEventListener('click', async () => {
       if (conn) { try { conn.disconnect(); } catch {} return; }
       st.textContent = 'Loading the Voice SDK…';
@@ -1005,15 +1022,25 @@ function twilioConnectNode() {
         const t = await (await fetch(SAN_API + '/api/twilio/token')).json();
         if (!t.ok) { st.textContent = t.detail || 'Token unavailable.'; return; }
         device = new Twilio.Device(t.token, { logLevel: 'error' });
-        st.textContent = 'Connecting…';
-        conn = await device.connect({ params: { mode: 'sanas' } });
-        btn.textContent = '■ Hang up'; st.textContent = 'In call — Sanas is enhancing the line.';
+        const to = toInput.value.trim();
+        const model = modelSel.value;
+        const params = to ? { To: to, model, mode: 'dial' } : { model, mode: 'sanas' };
+        st.textContent = to ? `Calling ${to}…` : 'Connecting…';
+        conn = await device.connect({ params });
+        btn.textContent = '■ Hang up';
+        st.textContent = to ? `In call with ${to} — speak through the app (Sanas ${model} on the audio).`
+                            : `In call — hearing yourself through Sanas ${model}.`;
         const csid = conn.parameters && conn.parameters.CallSid;
         tgl.innerHTML = ''; if (csid) tgl.appendChild(callToggle(csid));
+        conn.on('error', (e) => { st.textContent = 'Call error: ' + (e.message || e); });
         conn.on('disconnect', () => { conn = null; btn.textContent = 'Talk in the browser'; st.textContent = 'Call ended.'; tgl.innerHTML = ''; });
       } catch (e) { st.textContent = 'Browser call failed: ' + (e.message || e); }
     });
-    wrap.append(el('div', { class: 'tw-or' }, 'or talk right here'), el('div', { class: 'tw-row' }, btn), st, tgl);
+    wrap.append(
+      el('div', { class: 'tw-or' }, 'or talk right here — through the app'),
+      el('div', { class: 'tw-row' }, toInput),
+      el('div', { class: 'tw-row' }, el('span', { class: 'tw-toggle-l' }, 'Model:'), modelSel, btn),
+      st, tgl);
     return wrap;
   }
 
@@ -1493,6 +1520,8 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Play a before/after'), 300); }));
   document.querySelectorAll('[data-open-playground]').forEach(b =>
     b.addEventListener('click', () => { setTimeout(openPlayground, 150); }));
+  document.querySelectorAll('[data-open-person]').forEach(b =>
+    b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 200); }));
 
   // session id display
   $('#sanSession').textContent = state.sessionId.slice(0, 8);

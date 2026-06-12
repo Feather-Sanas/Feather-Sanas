@@ -86,21 +86,35 @@ def twilio_config() -> JSONResponse:
 
 
 # ---- TwiML builders ---------------------------------------------------------
-def _ws_url() -> str:
+def _ws_url(model: str | None = None) -> str:
+    m = model or SANAS_MODEL
     return PUBLIC_BASE.replace("https://", "wss://").replace("http://", "ws://") + \
-        f"/api/twilio/media?model={urllib.parse.quote(SANAS_MODEL)}"
+        f"/api/twilio/media?model={urllib.parse.quote(m)}"
 
 
-def _twiml_sanas_demo() -> str:
+def _twiml_sanas_demo(model: str | None = None) -> str:
     # <Connect><Stream> hands the call's bidirectional media to our WebSocket,
     # where Sanas processes it and streams the cleaned audio back.
     return (
         '<?xml version="1.0" encoding="UTF-8"?><Response>'
         '<Say>Connecting you through Sanas. You will hear your own audio, '
         'enhanced in real time.</Say>'
-        f'<Connect><Stream url="{escape(_ws_url())}"/></Connect>'
+        f'<Connect><Stream url="{escape(_ws_url(model))}"/></Connect>'
         '</Response>'
     )
+
+
+def _twiml_dial(to: str, model: str | None = None) -> str:
+    # Two-way: bridge the browser caller to a real phone (<Dial>), and fork the
+    # call audio to our Sanas WS (<Start><Stream>) so the selected model runs and
+    # the mid-call on/off applies. (Media Streams can't re-inject into a Dial leg —
+    # that needs <Connect><Stream>, which can't co-exist with <Dial>.)
+    if not to:
+        return _twiml_ivr()
+    fork = f'<Start><Stream url="{escape(_ws_url(model))}"/></Start>' if (PUBLIC_BASE and _AUDIOOP) else ''
+    caller = f' callerId="{escape(NUMBER)}"' if NUMBER else ''
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'{fork}<Dial{caller}><Number>{escape(to)}</Number></Dial></Response>')
 
 
 def _twiml_human() -> str:
@@ -129,15 +143,24 @@ def _twiml_ivr() -> str:
 async def twilio_voice(request: Request) -> Response:
     # mode may arrive as a query param (REST callback Url) or a POST form field
     # (browser Device.connect params are POSTed to the TwiML App's Voice URL).
-    mode = request.query_params.get("mode")
-    if not mode and request.method == "POST":
+    params = dict(request.query_params)
+    if request.method == "POST":
         try:
             form = await request.form()
-            mode = form.get("mode")
+            for k, v in form.items():
+                params.setdefault(k, v)
         except Exception:
-            mode = None
-    mode = mode or "ivr"
-    body = {"ivr": _twiml_ivr, "human": _twiml_human, "sanas": _twiml_sanas_demo}.get(mode, _twiml_ivr)()
+            pass
+    mode = params.get("mode") or ("dial" if params.get("To") else "ivr")
+    model = params.get("model")
+    if mode == "dial":
+        body = _twiml_dial((params.get("To") or "").strip(), model)
+    elif mode == "human":
+        body = _twiml_human()
+    elif mode == "sanas":
+        body = _twiml_sanas_demo(model)
+    else:
+        body = _twiml_ivr()
     return Response(content=body, media_type="application/xml")
 
 
