@@ -137,13 +137,15 @@ function recommend(text) {
     "entry page" in a real deploy; here intent + chip drive it.)
    ============================================================ */
 const PERSONAS = {
-  curious:  { label: 'Just looking', em: '○', register: 'plain-language explainers, soft CTA' },
-  buyer_cx: { label: 'CX buyer',     em: '◆', register: 'quantified outcomes (AHT, CSAT, FCR), case studies' },
-  buyer_it: { label: 'IT / Security',em: '■', register: 'architecture, certifications, deployment topology' },
-  developer:{ label: 'Developer',    em: '▸', register: 'technical, code snippets, sandbox, latency' },
+  curious:    { label: 'Just looking', em: '○', register: 'plain-language explainers, soft CTA' },
+  buyer_cx:   { label: 'CX buyer',     em: '◆', register: 'quantified outcomes (AHT, CSAT, FCR), case studies' },
+  buyer_telco:{ label: 'Telco / Carrier', em: '◈', register: 'carrier-grade voice quality (MOS/PESQ), network codecs, jitter/packet-loss, scale & SLAs' },
+  buyer_it:   { label: 'IT / Security',em: '■', register: 'architecture, certifications, deployment topology' },
+  developer:  { label: 'Developer',    em: '▸', register: 'technical, code snippets, sandbox, latency' },
 };
 function classifyPersona(text, current) {
   const t = text.toLowerCase();
+  if (/\b(telco|telecom|carrier|operator|voip|sip trunk|sip|pstn|codec|mos|pesq|jitter|packet ?loss|opus|g\.?711|g\.?729|amr|narrowband|wideband|rtp)\b/.test(t)) return 'buyer_telco';
   if (/\b(api|sdk|curl|endpoint|latency|sandbox|integrat|code|python|node|deepgram|elevenlabs|krisp|wer)\b/.test(t)) return 'developer';
   if (/\b(iso|soc 2|soc2|gdpr|compliance|security|residency|on-?prem|architecture|certif|data)\b/.test(t)) return 'buyer_it';
   if (/\b(csat|aht|fcr|roi|seats|agents|bpo|call center|cost|savings|demo|pilot)\b/.test(t)) return 'buyer_cx';
@@ -160,16 +162,28 @@ function skepticScore(text) {
 
 /* ============================================================
    AUDIO SHOWROOM (F5) — three curated scenarios.
-   Audio is synthesised live via Web Audio so the before/after
-   toggle genuinely plays without shipping media files.
-   "before" = voice tone + scenario noise; "after" = clean,
-   reconstructed-sounding tone. Demonstrates the mechanic.
+   The before/after clips are the real demos from sanas.ai, served
+   straight from their media CDN (CORS-open, range-enabled, so the
+   browser fetches + decodes them directly). If the CDN is ever
+   unreachable, playScenarioBest falls back to live Web-Audio synth.
+   Keys keep their internal meaning (ambient noise / competing audio
+   / accent) so intent routing below is unchanged.
    ============================================================ */
+const SANAS_CDN = 'https://effortless-badge-32d479bc16.media.strapiapp.com/';
 const SCENARIOS = {
-  cafe:     { name: 'Noisy Cafe', desc: 'Broadband background noise — tests Speech Enhancement under espresso machines and ambient chatter.', noise: 'broadband' },
-  floor:    { name: 'Call Center Floor', desc: 'Overlapping agent conversations — tests foreground voice isolation under competing speech.', noise: 'babble' },
-  offshore: { name: 'Offshore Agent Baseline', desc: 'Raw audio from a target dialect region — the primary Accent Translation demo for CX leaders.', noise: 'accent' },
+  cafe:     { name: 'Ambient Noise', desc: 'Steady background noise removed while the speaker’s voice is preserved — Speech Enhancement, the real demo clip from sanas.ai.', noise: 'broadband',
+              before: SANAS_CDN + 'Rain_OFF_0fecf76628.wav',          after: SANAS_CDN + 'Rain_ON_a5f3262627.wav' },
+  floor:    { name: 'Background Voices & Music', desc: 'Competing background audio suppressed so the foreground voice stays intelligible — Speech Enhancement, the real demo clip from sanas.ai.', noise: 'babble',
+              before: SANAS_CDN + 'Music_background_OFF_06e19dcd63.wav', after: SANAS_CDN + 'Music_background_ON_ae71a25e31.wav' },
+  offshore: { name: 'Accent Translation', desc: 'An offshore agent’s degraded line reconstructed to native-clarity output — same voice, same words. The flagship Accent Translation demo from sanas.ai.', noise: 'accent',
+              before: SANAS_CDN + 'Gabriel_Rivera_Degraded_1_39394b1310.wav', after: SANAS_CDN + 'Gabriel_Rivera_AT_Revised2_1_296423b25e.wav' },
 };
+/* URL for a scenario's before/after side — the real sanas.ai clip when defined,
+   else a local drop-in (assets/<key>_<side>.wav). */
+function scenarioUrl(key, side /* 'before' | 'after' */) {
+  const scn = SCENARIOS[key] || {};
+  return scn[side] || `assets/${key}_${side}.wav`;
+}
 let _audioCtx = null;
 const audioCtx = () => (_audioCtx ||= new (window.AudioContext || window.webkitAudioContext)());
 
@@ -375,16 +389,16 @@ function playScenario(key, processed, canvas) {
   if (canvas) animateWaveform(canvas, processed, dur);
 }
 
-/* Prefer real curated audio files when present (assets/<key>_{before,after}.wav);
-   fall back to live Web-Audio synthesis when they're absent. Drop real voice
-   recordings into assets/ (see scripts/build_scenarios.sh) and they play here. */
+/* Fetch + decode the real sanas.ai before/after clips for this scenario; fall
+   back to live Web-Audio synthesis only if the CDN (or local drop-in) is
+   unreachable. */
 const SCENARIO_BUFFERS = {};
 async function loadScenarioAudio(key) {
   if (SCENARIO_BUFFERS[key] !== undefined) return SCENARIO_BUFFERS[key];
   try {
     const [b, a] = await Promise.all([
-      fetch(`assets/${key}_before.wav`).then(r => r.ok ? r.arrayBuffer() : Promise.reject()),
-      fetch(`assets/${key}_after.wav`).then(r => r.ok ? r.arrayBuffer() : Promise.reject()),
+      fetch(scenarioUrl(key, 'before')).then(r => r.ok ? r.arrayBuffer() : Promise.reject()),
+      fetch(scenarioUrl(key, 'after')).then(r => r.ok ? r.arrayBuffer() : Promise.reject()),
     ]);
     const [before, after] = await Promise.all([decodeAudio(b), decodeAudio(a)]);
     SCENARIO_BUFFERS[key] = { before, after };
@@ -584,11 +598,10 @@ function showroomNode(key) {
   // real WER delta: before/after vs the clean voice bed as reference
   const asr = asrSection(async () => {
     const grab = (u) => fetch(u).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(u))));
-    const [before, after, reference] = await Promise.all([
-      grab(`assets/${key}_before.wav`), grab(`assets/${key}_after.wav`),
-      grab('assets/raw/_voice.wav').catch(() => null),
+    const [before, after] = await Promise.all([
+      grab(scenarioUrl(key, 'before')), grab(scenarioUrl(key, 'after')),
     ]);
-    return { before, after, reference };
+    return { before, after };
   });
   return el('div', { class: 'showroom rich' },
     el('div', { class: 'scn-name' }, scn.name),
@@ -708,13 +721,13 @@ function playgroundNode() {
   fileInput.addEventListener('change', () => { if (fileInput.files[0]) gotInput(fileInput.files[0]); });
   const sampleSel = el('select', { class: 'pg-sample' },
     el('option', { value: '' }, 'Sample…'),
-    el('option', { value: 'cafe' }, 'Noisy cafe'),
-    el('option', { value: 'floor' }, 'Call-center floor'),
+    el('option', { value: 'cafe' }, 'Ambient noise'),
+    el('option', { value: 'floor' }, 'Background voices'),
     el('option', { value: 'offshore' }, 'Offshore agent'));
   sampleSel.addEventListener('change', async () => {
     const k = sampleSel.value; if (!k) return;
-    setStatus('Loading sample…', true);
-    try { const ab = await fetch(`assets/${k}_before.wav`).then(r => r.arrayBuffer()); gotInput(new Blob([ab], { type: 'audio/wav' })); }
+    setStatus('Loading sanas.ai sample…', true);
+    try { const ab = await fetch(scenarioUrl(k, 'before')).then(r => r.arrayBuffer()); gotInput(new Blob([ab], { type: 'audio/wav' })); }
     catch { setStatus('Could not load sample.'); }
   });
   const liveBtn = el('button', { class: 'pg-input-btn live',
@@ -1286,7 +1299,7 @@ function respond(text) {
     if (/\b(noise|noisy|cafe|background|ambient)\b/.test(t)) key = 'cafe';
     else if (/\b(call center|floor|overlap|babble)\b/.test(t)) key = 'floor';
     return { text: `Listen, then judge. Here's the ${SCENARIOS[key].name} scenario. Hit play, then toggle Before ↔ After — same voice, same words. The reason it sounds natural is that we reconstruct the signal rather than filter it. If you have a clip from your own floor, you can upload it and I'll run that too.`,
-      sources: ['kb-reconstruct'], nodes: [showroomNode(key)], suggestions: ['Play the Noisy Cafe one', 'How does reconstruction work?', 'I have a clip to upload'] };
+      sources: ['kb-reconstruct'], nodes: [showroomNode(key)], suggestions: ['Play the Accent Translation one', 'How does reconstruction work?', 'I have a clip to upload'] };
   }
 
   // ---- Recommendation engine (F4) ----
@@ -1598,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const intro = {
       developer: "Noted — I'll keep it technical. Want the SDK code, the eight-layer latency trace, or to upload a clip and hear it processed through the model?",
       buyer_cx: "Got it. I'll lead with outcomes — AHT, CSAT, FCR. What's the setup: how many seats, and what's the main complaint from customers today?",
+      buyer_telco: "Understood — I'll talk carrier-grade. We run in-path on the media stream, narrowband or wideband, and lift perceived voice quality (MOS/PESQ) without adding meaningful latency. Are you looking at the access side, an SBC/SIP-trunk deployment, or call-center termination?",
       buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
       curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
     }[p];
@@ -1605,6 +1619,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sg = {
       developer: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process'],
       buyer_cx: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after'],
+      buyer_telco: ['How does it run in-path?', 'MOS lift over G.711', 'Latency budget per leg'],
       buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
       curious: ['What does Sanas do?', 'Play a before/after'],
     }[p];
