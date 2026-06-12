@@ -212,6 +212,12 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .showroom .scn-name { font-weight: 700; font-size: 14px; }
 .showroom .scn-desc { font-size: 12px; color: var(--gray-04); margin-bottom: 12px; }
 .waveform { width: 100%; height: 64px; display: block; background: #fff; border-radius: 10px; border: 1px solid var(--gray-02); }
+/* Upload model picker */
+.model-pick-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.model-pick-lbl { font-size: 11px; color: var(--gray-04); text-transform: uppercase; letter-spacing: .1em; }
+.model-pick { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--gray-02); background: var(--sanas-white); color: var(--sanas-black); border-radius: 999px; padding: 6px 11px; }
+.model-pick:disabled { opacity: .55; cursor: progress; }
+.model-pick-status { font-size: 12px; color: var(--gray-04); }
 /* Spectrogram analysis */
 .spectro-wrap { margin-top: 12px; }
 .spectro-cap { font-size: 11px; color: var(--gray-04); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 6px; }

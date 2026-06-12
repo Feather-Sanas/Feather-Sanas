@@ -195,6 +195,14 @@ async function fetchHealth() {
   try { const r = await fetch(SAN_API + '/api/health'); return r.ok ? await r.json() : null; }
   catch { return null; }
 }
+/* Available Sanas models (cached), for the upload result's model picker. */
+let _modelsCache = null;
+async function getModels() {
+  if (_modelsCache) return _modelsCache;
+  try { const d = await fetch(SAN_API + '/api/models').then(r => r.json()); _modelsCache = d.models || []; }
+  catch { _modelsCache = []; }
+  return _modelsCache;
+}
 /* Route conversational prose through Claude (backend). Returns text, or null
    to signal the caller to use the deterministic rule-based reply instead. */
 async function llmChat(history, persona, skeptic) {
@@ -718,8 +726,12 @@ function showroomNode(key) {
     canvas, toggle, asr);
 }
 
-/* real before/after on the user's uploaded clip (F5 live path, via the SDK backend) */
+/* real before/after on the user's uploaded clip (F5 live path, via the SDK backend).
+   A model picker lets the user re-analyze the same clip against any Sanas model. */
 function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
+  let proc = procBuf;                              // mutable — swapped when a new model is picked
+  let procBytes = rawBytes && rawBytes.after;
+  const origBytes = rawBytes && rawBytes.before;   // original upload, needed to re-process
   const canvas = el('canvas', { class: 'waveform', 'aria-label': 'Your clip waveform' });
   const toggle = el('div', { class: 'sanas-toggle', role: 'group', 'aria-label': 'Before and after' });
   let on = false;
@@ -727,24 +739,63 @@ function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
     el('span', { class: 'state-off' }, 'Before'),
     el('span', { class: 'state-on' }, 'After'),
     el('span', { class: 'knob', html: waveSVG('#16c47f') }));
-  const spectro = spectrogramView(() => (on ? procBuf : origBuf));
-  const draw = () => { drawBufferWaveform(canvas, on ? procBuf : origBuf, on ? '#16c47f' : '#a7a7a7'); spectro.redraw(); };
-  const controls = audioControls(() => (on ? procBuf : origBuf));
+  const spectro = spectrogramView(() => (on ? proc : origBuf));
+  const draw = () => { drawBufferWaveform(canvas, on ? proc : origBuf, on ? '#16c47f' : '#a7a7a7'); spectro.redraw(); };
+  const controls = audioControls(() => (on ? proc : origBuf));
   const setOn = v => { on = v; toggle.classList.toggle('on', on); track.setAttribute('aria-checked', String(on)); draw(); };
   track.addEventListener('click', () => { controls.halt(); setOn(!on); emit({ event: 'audio_toggle', processed: on, sanas_mode: meta.mode }); });
   track.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); track.click(); } });
-  toggle.append(track, el('span', { class: 'tg-label' }, meta.mode === 'real' ? ('Sanas ' + meta.model) : 'raw ↔ cleaned'), controls);
+  const tgLabel = el('span', { class: 'tg-label' }, meta.mode === 'real' ? ('Sanas ' + meta.model) : 'raw ↔ cleaned');
+  toggle.append(track, tgLabel, controls);
   requestAnimationFrame(draw);
-  const node = el('div', { class: 'showroom rich' },
-    el('div', { class: 'scn-name' }, 'Your clip'),
-    el('div', { class: 'scn-desc' }, meta.mode === 'real'
-      ? `Processed live by Sanas ${meta.model} at ${meta.sr} Hz · switch Before↔After, then Play/Stop`
-      : 'Mock processing — install the SDK for live Sanas output'),
-    canvas, toggle, spectro.el);
-  if (rawBytes && rawBytes.before && rawBytes.after) {
-    node.appendChild(asrSection(async () => ({ before: rawBytes.before, after: rawBytes.after })));
+
+  const descText = () => meta.mode === 'real'
+    ? `Processed live by Sanas ${meta.model} at ${meta.sr} Hz · switch Before↔After, then Play/Stop`
+    : 'Mock processing — install the SDK for live Sanas output';
+  const desc = el('div', { class: 'scn-desc' }, descText());
+
+  // ASR (re-rendered when the model changes so WER reflects the current output)
+  const asrMount = el('div');
+  const renderAsr = () => {
+    asrMount.innerHTML = '';
+    if (origBytes && procBytes) asrMount.appendChild(asrSection(async () => ({ before: origBytes, after: procBytes })));
+  };
+  renderAsr();
+
+  // model picker — re-analyze the same clip against another Sanas model
+  const picker = el('div', { class: 'model-pick-row' });
+  if (origBytes) {
+    getModels().then(models => {
+      if (!models.length) return;
+      const sel = el('select', { class: 'model-pick', 'aria-label': 'Analyze against model' });
+      models.forEach(m => sel.appendChild(el('option', { value: m.name }, `${m.label} · ${Math.round((m.sample_rate || 16000) / 1000)}k`)));
+      if (models.some(m => m.name === meta.model)) sel.value = meta.model;
+      const status = el('span', { class: 'model-pick-status' });
+      sel.addEventListener('change', async () => {
+        const name = sel.value;
+        const label = (models.find(m => m.name === name) || {}).label || name;
+        sel.disabled = true; status.textContent = `Analyzing through ${label}… (runs in real time, ~clip length)`;
+        controls.halt();
+        try {
+          const res = await processClip(new Blob([origBytes], { type: 'audio/wav' }), name);
+          proc = res.procBuf; procBytes = res.procBytes; meta = res.meta;
+          if (on) draw(); else setOn(true);          // surface the new output
+          tgLabel.textContent = meta.mode === 'real' ? ('Sanas ' + meta.model) : 'raw ↔ cleaned';
+          desc.textContent = descText();
+          renderAsr();
+          status.textContent = `Now showing Sanas ${meta.model}.`;
+          emit({ event: 'upload_model_switch', model: meta.model, sanas_mode: meta.mode });
+        } catch {
+          status.textContent = 'That model failed — keeping the previous result.';
+        } finally { sel.disabled = false; }
+      });
+      picker.append(el('span', { class: 'model-pick-lbl' }, 'Analyze against'), sel, status);
+    });
   }
-  return node;
+
+  return el('div', { class: 'showroom rich' },
+    el('div', { class: 'scn-name' }, 'Your clip'),
+    desc, picker, canvas, toggle, spectro.el, asrMount);
 }
 
 /* eight-layer debug trace (F10) */
@@ -1655,7 +1706,7 @@ async function handleUpload(file) {
       ? ` I trimmed it to the first ${meta.limit}s — the engine runs in real time, so longer clips take proportionally longer.`
       : '';
     addMessage('san',
-      `Ran your clip through the same ingress quality probe the speech engine uses in production, then the model.${truncNote}\n\n**SNR** ~${meta.snr} dB · **clip rate** ${meta.clip}% · **sample rate** ${meta.sr} Hz · **VAD** ${meta.vad} · **${meta.dur}s**.\n\n${modeNote} Toggle Before ↔ After to compare. Your audio is processed in-memory and deleted within 24h by default.`,
+      `Ran your clip through the same ingress quality probe the speech engine uses in production, then the model.${truncNote}\n\n**SNR** ~${meta.snr} dB · **clip rate** ${meta.clip}% · **sample rate** ${meta.sr} Hz · **VAD** ${meta.vad} · **${meta.dur}s**.\n\n${modeNote} Toggle Before ↔ After to compare, or use the model picker to analyze it against a different Sanas model. Your audio is processed in-memory and deleted within 24h by default.`,
       { sources: ['kb-enhance', 'kb-reconstruct'], nodes: [realShowroomNode(origBuf, procBuf, meta, { before: arrBuf, after: procArr })] });
     setSuggestions(['How does reconstruction work?', 'Show the 8-layer trace', 'Talk to a human']);
     emit({ event: 'audio_processed', audio_uploaded_bool: true, sanas_mode: meta.mode, model: meta.model });
