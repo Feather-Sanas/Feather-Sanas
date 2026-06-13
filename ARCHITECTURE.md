@@ -297,7 +297,7 @@ Connect a caller to a human / IVR / another phone, with Sanas on the call.
 | `GET/POST /api/twilio/voice` | TwiML. Inbound (no mode) → **dial-in prompt**; `mode=ivr\|human\|sanas\|dial\|bridge\|bridgeleg` |
 | `POST /api/twilio/dialin-connect` | inbound: gather the keyed number → bridge to it |
 | `WS /api/twilio/media` | single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back |
-| `WS /api/twilio/bridge` | **two-leg in-path bridge**: caller→Sanas→callee; relays callee→caller; reads **DTMF** to switch model / toggle; resamples 8 kHz ↔ 16 kHz models |
+| `WS /api/twilio/bridge` | **two-leg in-path bridge**: caller→Sanas→callee; relays callee→caller; reads **DTMF** to switch model / toggle; resamples 8 kHz ↔ 16 kHz models; if the callee dial fails (e.g. 21219 unverified on trial) it **redirects the caller to a spoken reason + hangup** instead of dead air |
 | `POST /api/twilio/toggle {call_sid\|bridge_id}` | mid-call Sanas on/off |
 | `GET /api/twilio/token` · `POST /api/twilio/call` | browser Voice access token · REST click-to-call |
 | `GET /api/twilio/config` | which paths are configured |

@@ -23,8 +23,10 @@ or bridged leg may only reach a number that has been added as a **Verified Calle
 Dialling anything else fails with **error 21219** — the dial-in flow will appear to
 "only let you call one number" (the verified one).
 
-> Current project account `AC2417…dfa6` is **type: Trial**, with a single verified
-> number: **+1 801-850-3440**. That's why the dial-in bridge only connects to it.
+> **Status: the project account `AC2417…dfa6` has been upgraded to `type: Full`.**
+> The verified-number limit no longer applies — the dial-in bridge connects to any
+> number, with no code or `.env` changes. The notes below are kept for reference and
+> apply to any account still on trial.
 >
 > Check anytime:
 > ```bash
@@ -117,6 +119,11 @@ curl -s http://127.0.0.1:8000/api/twilio/config | python3 -m json.tool
 
 > **Trial limit:** the dialed destination must be a **Verified Caller ID** (error 21219)
 > or the account upgraded — see below. Inbound (you calling in) works on trial.
+>
+> **If a dial fails** (unverified destination on trial, or a bad/unreachable number),
+> the bridge now **redirects the caller to a spoken message** and hangs up instead of
+> leaving dead air — error 21219 says the number isn't verified yet; other failures
+> ask you to check the number. (On the upgraded Full account, 21219 no longer occurs.)
 
 ---
 

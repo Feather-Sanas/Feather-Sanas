@@ -33,6 +33,7 @@ import hmac
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from xml.sax.saxutils import escape
@@ -139,15 +140,42 @@ def _twiml_bridge_callee(bid: str, model: str | None) -> str:
 
 
 def _create_call(to: str, url: str) -> dict:
-    """Place an outbound call whose media is controlled by `url` (TwiML)."""
+    """Place an outbound call whose media is controlled by `url` (TwiML).
+    On a Twilio API error, raises RuntimeError carrying the status + body so the
+    caller can be told *why* (e.g. error 21219 = destination not verified)."""
     payload = urllib.parse.urlencode({"To": to, "From": NUMBER, "Url": url}).encode()
     api = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls.json"
     auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
     req = urllib.request.Request(api, data=payload, method="POST",
                                  headers={"Authorization": f"Basic {auth}",
                                           "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"twilio {e.code}: {body}") from None
+
+
+def _update_call_twiml(call_sid: str, twiml: str) -> dict:
+    """Redirect a live call to fresh inline TwiML (used to speak a dial failure)."""
+    payload = urllib.parse.urlencode({"Twiml": twiml}).encode()
+    api = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls/{call_sid}.json"
+    auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
+    req = urllib.request.Request(api, data=payload, method="POST",
+                                 headers={"Authorization": f"Basic {auth}",
+                                          "Content-Type": "application/x-www-form-urlencoded"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode())
+
+
+def _twiml_say_hangup(message: str) -> str:
+    return ('<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Response><Say>{escape(message)}</Say><Hangup/></Response>')
 
 
 def _sanas_mulaw(sess, payload_b64: str) -> str:
@@ -530,6 +558,7 @@ async def twilio_bridge(ws: WebSocket):
                     br["model"] = model
                     br["up"] = br["down"] = None
                     br["resid"] = None
+                    br["caller_call_sid"] = msg["start"].get("callSid")
                     if sanas_client.client.mode == "real" and _AUDIOOP:
                         try:
                             br["sess"] = await loop.run_in_executor(None, _open_sess, model)
@@ -540,8 +569,23 @@ async def twilio_bridge(ws: WebSocket):
                         url = f"{PUBLIC_BASE}/api/twilio/voice?mode=bridgeleg&id={urllib.parse.quote(bid)}&model={urllib.parse.quote(model)}"
                         try:
                             await loop.run_in_executor(None, _create_call, to, url)
-                        except Exception:
-                            pass  # callee never joins
+                        except Exception as e:
+                            # Couldn't reach the callee — tell the caller why instead of
+                            # leaving dead air. 21219 = destination not a Verified Caller ID
+                            # (trial accounts only); other codes = bad/unreachable number.
+                            detail = str(e)
+                            unverified = "21219" in detail or "not verified" in detail.lower()
+                            say = ("The number you dialed has not been verified on this Twilio "
+                                   "account yet. Verify it in the Twilio console, or upgrade the "
+                                   "account, then try again. Goodbye." if unverified else
+                                   "Sorry, that call could not be connected. Please check the "
+                                   "number and try again. Goodbye.")
+                            csid = br.get("caller_call_sid")
+                            if csid:
+                                try:
+                                    await loop.run_in_executor(None, _update_call_twiml, csid, _twiml_say_hangup(say))
+                                except Exception:
+                                    pass
             elif ev == "dtmf" and role == "caller":
                 digit = (msg.get("dtmf") or {}).get("digit")
                 if digit:
