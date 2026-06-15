@@ -1211,12 +1211,22 @@ function twilioConnectNode() {
 
     btn.addEventListener('click', async () => {
       if (conn) { try { conn.disconnect(); } catch {} return; }
+      // mic preflight — a blocked microphone is the most common silent failure
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach(tr => tr.stop());
+      } catch (e) {
+        st.textContent = 'Microphone blocked — allow mic access for this site and retry. (' + (e.name || e) + ')';
+        return;
+      }
       st.textContent = 'Loading the Voice SDK…';
       try {
         await loadTwilioSDK();
         const t = await (await fetch(SAN_API + '/api/twilio/token')).json();
         if (!t.ok) { st.textContent = t.detail || 'Token unavailable.'; return; }
         device = new Twilio.Device(t.token, { logLevel: 'error' });
+        // surface Device-level errors (token/registration) — these fire here, not on the call
+        device.on('error', (e) => { st.textContent = 'Device error ' + (e.code || '') + ': ' + (e.message || e); });
         const to = toInput.value.trim();
         const model = modelSel.value;
         let params, togglePayload = null;
