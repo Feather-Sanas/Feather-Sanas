@@ -380,7 +380,8 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .playground { display: flex; flex-direction: column; gap: 12px; }
 .pg-title { font-size: 18px; font-weight: 700; }
 .pg-sub { font-size: 13px; color: var(--gray-04); line-height: 1.5; }
-.pg-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.pg-tabs { display: flex; align-items: center; gap: 10px; }
+.pg-feature-select { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; }
 .pg-tab {
   font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
   border: 1px solid var(--gray-02); background: var(--sanas-white); color: var(--sanas-black);
@@ -423,8 +424,11 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .rc-switch { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--gray-02);
   background: var(--sanas-white); border-radius: 999px; padding: 5px 12px; }
 .pg-models { display: flex; flex-direction: column; gap: 8px; }
-.pg-models-head { display: flex; justify-content: space-between; align-items: center;
+.pg-models-head { display: flex; align-items: center; gap: 10px;
   font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-04); }
+.pg-m-lbl { flex: none; }
+.pg-model-select { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; }
+.pg-models-head .pg-testall { flex: none; margin-left: auto; }
 .pg-testall { font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; border: 0;
   background: linear-gradient(90deg, var(--sanas-green), var(--sanas-green-deep)); color: #06281c;
   border-radius: 999px; padding: 7px 14px; }
@@ -481,6 +485,8 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 }
 .tw-browser { border-top: 1px dashed var(--gray-02); padding-top: 10px; margin-top: 2px; }
 .tw-or { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-03); margin-bottom: 6px; }
+.tw-action { flex: 1; min-width: 200px; }
+.tw-browser-extras { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
 .pg-input-btn:disabled { opacity: .45; cursor: default; }
 .tw-toggle-l { font-size: 12px; color: var(--gray-04); }
 .tw-callctl { margin-top: 4px; }
