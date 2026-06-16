@@ -88,7 +88,7 @@ ASCII fallback:
 | Component | File | Responsibility |
 |---|---|---|
 | **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sani chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
-| **Front-end app** | `app.js` | Rule engine (retrieval, **6-persona** classify/dropdown — Curious / CX / Telco / IT-Security / Developer / Data-Scientist, skeptic, guardrails), rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT), Web-Audio capture/playback, ASR/chat clients. |
+| **Front-end app** | `app.js` | Rule engine (retrieval, **7-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security, skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
 | **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). Mock fallback when the SDK/creds are absent. |
 | **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Returns `None` to signal the client to fall back to the rule engine. |
@@ -317,15 +317,17 @@ both legs); a `<Dial>` fork can run/measure the model but can't re-inject. See `
 articles**, and blog & news posts) **and the help center `help.sanas.ai`** (every article
 in its Document360 `llms.txt` — install/configure/integrate/troubleshoot/portal docs) into
 `server/web_index.json` (~220 pages). On each chat turn the backend retrieves the
-top-matching pages, passes them to Claude as grounding context, and returns them as
-**clickable source links** the UI renders under the answer.
+top-matching pages and passes them to Claude as grounding context, instructing it to
+**weave inline markdown links** (`[anchor](url)`) to the pages it uses; `app.js`'s
+markdown renderer turns those (and bare URLs) into clickable `<a target="_blank">`, and
+the same pages also render as **source chips** under the answer.
 
 Retrieval is **intent-biased**: `webindex.search(query, prefer=…)` boosts a section.
 The **Data Scientist** persona passes `prefer="/science"` (grounds answers in the Sanas
-science write-ups — 8→16 kHz upscaling, VAD, ASR-optimized NC). **Support/how-to
-questions** (detected by keywords — install, configure, integrate, troubleshoot, reset,
-audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sani answers from and cites the real
-help docs. The audio showroom's before/after clips are the **real sanas.ai demo audio**
+science write-ups — 8→16 kHz upscaling, VAD, ASR-optimized NC). The **Help** persona and
+**support/how-to questions** (detected by keywords — install, configure, integrate,
+troubleshoot, reset, audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sani answers
+from and links to the real help docs. The audio showroom's before/after clips are the **real sanas.ai demo audio**
 streamed from the Sanas media CDN (synth fallback if unreachable).
 
 ```

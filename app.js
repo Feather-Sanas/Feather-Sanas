@@ -1633,10 +1633,13 @@ function respond(text) {
    ============================================================ */
 const log = () => $('#sanLog');
 
-/* light markdown: *italic*, **bold**, `code`, paragraphs (input is escaped first) */
+/* light markdown: links, *italic*, **bold**, `code`, paragraphs (input escaped first).
+   Inline [text](url) links and bare URLs become clickable, opening in a new tab. */
 function renderMarkdown(content) {
   return content
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(?<!["=>\]])\b(https?:\/\/[^\s<)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code>$1</code>')

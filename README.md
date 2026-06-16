@@ -163,11 +163,13 @@ player:
 **`/science` articles** plus blog/news posts — **and the help center `help.sanas.ai`**
 (every article in its Document360 `llms.txt`) into `server/web_index.json` (~220 pages).
 On every chat turn the backend retrieves the top-matching pages (`server/webindex.py`),
-passes them to Claude as grounding context, and returns them as **clickable source
-links** under the answer. Retrieval is intent-biased: the **Data Scientist** persona
-prefers the science articles (`prefer="/science"`), and **support/how-to questions**
-(install, configure, integrate, troubleshoot, reset password, …) prefer the help center
-(`prefer="help.sanas.ai"`) so Sani answers from and cites the real help docs. Re-index anytime:
+passes them to Claude as grounding context. Sani **weaves inline links to the relevant
+pages directly into its reply** (markdown `[anchor](url)` on the words it describes — and
+bare URLs are auto-linked too), and the same pages also appear as **clickable source
+chips** under the answer. Retrieval is intent-biased: the **Help** persona and any
+**support/how-to question** (install, configure, integrate, troubleshoot, reset password,
+…) prefer the help center (`prefer="help.sanas.ai"`); the **Data Scientist** persona
+prefers the science articles (`prefer="/science"`). Re-index anytime:
 
 ```bash
 server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (public content)
@@ -176,7 +178,12 @@ server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (p
 ## Telephony (Twilio) — talk to a human / in-path bridge
 
 An optional voice layer connects a caller to a human, an IVR, or another phone, with
-**Sanas on the call** and mid-call model switching via DTMF. The flagship demo is the
+**Sanas on the call** and mid-call model switching via DTMF. One unified picker takes a
+number and a mode (talk to a human / IVR / hear Sanas / talk in the browser), with a
+**model dropdown for every mode**. You can preview **sample bad audio** (the real
+sanas.ai degraded→clean clips) before calling, and the **call is recorded** (Twilio
+server-side) so you can fetch it afterward and run it through the same before/after +
+spectrogram + ASR analysis as an uploaded clip. The flagship demo is the
 **dial-in bridge**: call the Twilio number, key a destination, and your voice is
 cleaned by Sanas in-path before the other party hears it. Setup, the verified-number
 **trial limitation**, and the go-live checklist are in **[TWILIO_SETUP.md](TWILIO_SETUP.md)**.
@@ -237,7 +244,7 @@ no engine or prompt change ships if a golden eval fails.
 | Spec | Implemented |
 |------|-------------|
 | F1 Grounded Q&A + sources | Lexical retrieval over a 13-chunk knowledge base; every answer shows source pills |
-| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown: Just looking / CX buyer / Telco-Carrier / IT-Security / Developer / Data Scientist. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding) |
+| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown: Just looking / Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in and linking to help.sanas.ai**) |
 | §3.4 Skeptic stance | Orthogonal per-turn score; triggers "showroom-first" behavior on any persona |
 | F3 Speech Science Educator | Acoustic Reconstruction + Dual-Decoder explanations, calibrated |
 | F4 Recommendation engine | Decision tree → product cards w/ rationale; handles compound challenges |

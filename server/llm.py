@@ -172,9 +172,12 @@ def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | No
     ]
     if context:
         # live sanas.ai retrieval — keep AFTER the cached prefix (it varies per turn)
-        lines = ["Relevant pages from sanas.ai for THIS question. Ground your answer in "
-                 "them when applicable and weave the most relevant one into your reply "
-                 "naturally (the interface shows the clickable links, so don't paste raw URLs):"]
+        lines = ["Relevant pages from sanas.ai / help.sanas.ai for THIS question. Ground your "
+                 "answer in them when applicable, and link to the ones you use INLINE with "
+                 "markdown: [short descriptive anchor](exact URL). Use the exact URLs below "
+                 "verbatim; put the link on the words it describes (not a bare URL or a "
+                 "'click here'). Aim for 1–3 inline links to the most relevant pages — don't "
+                 "force a link into every sentence:"]
         for c in context:
             lines.append(f"- {c['title']} — {c['url']}\n  {c.get('snippet', '')}")
         blocks.append({"type": "text", "text": "\n".join(lines)})
