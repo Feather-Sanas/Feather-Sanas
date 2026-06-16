@@ -393,6 +393,7 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
   background: var(--gray-02); color: var(--gray-04); border-radius: 4px; padding: 1px 5px; }
 .pg-tab.active .pg-badge { background: rgba(255,255,255,.2); color: #fff; }
 .pg-lang { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pg-lang[hidden] { display: none; }   /* class display: flex would otherwise override [hidden] */
 .pg-langsel, .pg-sample {
   font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px;
   border: 1px solid var(--gray-02); background: var(--sanas-white);

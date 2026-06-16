@@ -1837,4 +1837,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (roll && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     setInterval(() => { wi = (wi + 1) % words.length; roll.textContent = words[wi]; }, 2200);
   }
+
+  // deep-link: ?open=chat|playground|connect opens straight to a view (handy for
+  // shareable links and reproducible screenshots)
+  const open = new URLSearchParams(location.search).get('open');
+  if (open === 'playground') setTimeout(openPlayground, 200);
+  else if (open === 'connect' || open === 'person') { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 300); }
+  else if (open === 'chat' || open === 'san') openPanel();
 });
