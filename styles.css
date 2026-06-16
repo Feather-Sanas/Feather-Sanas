@@ -464,7 +464,7 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
   background: linear-gradient(90deg, var(--sanas-green), var(--sanas-green-deep)); transition: width .08s linear; }
 .live-meter:first-child .lm-track i { background: var(--gray-03); }
 
-/* "Speak to a model" / "Speak to a person" actions in the persona bar */
+/* "Test a model" / "Speak to a person" actions in the persona bar */
 .persona-actions { flex-basis: 100%; display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 4px; }
 .persona-action {
   display: inline-flex; align-items: center; gap: 6px;
