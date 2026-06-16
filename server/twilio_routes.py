@@ -87,20 +87,28 @@ def twilio_config() -> JSONResponse:
 
 
 # ---- TwiML builders ---------------------------------------------------------
-def _ws_url(model: str | None = None) -> str:
-    m = model or SANAS_MODEL
-    return PUBLIC_BASE.replace("https://", "wss://").replace("http://", "ws://") + \
-        f"/api/twilio/media?model={urllib.parse.quote(m)}"
+def _stream_xml(path: str, params: dict) -> str:
+    """Build a <Stream> that passes params as <Parameter> children. Twilio does NOT
+    forward a wss URL query string to the socket — customParameters (delivered in the
+    'start' event) are the reliable channel. We keep the query string too as a benign
+    fallback; the WS handlers read customParameters first, query second."""
+    items = [(k, str(v)) for k, v in params.items() if v not in (None, "")]
+    base = PUBLIC_BASE.replace("https://", "wss://").replace("http://", "ws://")
+    qs = ("?" + urllib.parse.urlencode(items)) if items else ""
+    url = escape(base + path + qs)
+    children = "".join(f'<Parameter name="{escape(k)}" value="{escape(v)}"/>' for k, v in items)
+    return f'<Stream url="{url}">{children}</Stream>'
 
 
 def _twiml_sanas_demo(model: str | None = None) -> str:
     # <Connect><Stream> hands the call's bidirectional media to our WebSocket,
     # where Sanas processes it and streams the cleaned audio back.
+    stream = _stream_xml("/api/twilio/media", {"model": model or SANAS_MODEL})
     return (
         '<?xml version="1.0" encoding="UTF-8"?><Response>'
         '<Say>Connecting you through Sanas. You will hear your own audio, '
         'enhanced in real time.</Say>'
-        f'<Connect><Stream url="{escape(_ws_url(model))}"/></Connect>'
+        f'<Connect>{stream}</Connect>'
         '</Response>'
     )
 
@@ -112,31 +120,28 @@ def _twiml_dial(to: str, model: str | None = None) -> str:
     # that needs <Connect><Stream>, which can't co-exist with <Dial>.)
     if not to:
         return _twiml_ivr()
-    fork = f'<Start><Stream url="{escape(_ws_url(model))}"/></Start>' if (PUBLIC_BASE and _AUDIOOP) else ''
+    fork = (f'<Start>{_stream_xml("/api/twilio/media", {"model": model or SANAS_MODEL})}</Start>'
+            if (PUBLIC_BASE and _AUDIOOP) else '')
     caller = f' callerId="{escape(NUMBER)}"' if NUMBER else ''
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
             f'{fork}<Dial{caller}><Number>{escape(to)}</Number></Dial></Response>')
 
 
 # ---- true in-path bridge: two <Connect><Stream> legs joined on our server -----
-def _bridge_ws(bid: str, role: str, model: str | None, to: str | None = None) -> str:
-    base = PUBLIC_BASE.replace("https://", "wss://").replace("http://", "ws://")
-    q = f"id={urllib.parse.quote(bid)}&role={role}&model={urllib.parse.quote(model or SANAS_MODEL)}"
-    if to:
-        q += f"&to={urllib.parse.quote(to)}"
-    return f"{base}/api/twilio/bridge?{q}"
-
-
 def _twiml_bridge_caller(bid: str, to: str, model: str | None) -> str:
     # the browser leg: bidirectional stream to our bridge (which dials the callee)
+    stream = _stream_xml("/api/twilio/bridge",
+                         {"id": bid, "role": "caller", "model": model or SANAS_MODEL, "to": to})
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
-            f'<Connect><Stream url="{escape(_bridge_ws(bid, "caller", model, to))}"/></Connect></Response>')
+            f'<Connect>{stream}</Connect></Response>')
 
 
 def _twiml_bridge_callee(bid: str, model: str | None) -> str:
     # the dialed-person leg: bidirectional stream to the same bridge
+    stream = _stream_xml("/api/twilio/bridge",
+                         {"id": bid, "role": "callee", "model": model or SANAS_MODEL})
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
-            f'<Connect><Stream url="{escape(_bridge_ws(bid, "callee", model))}"/></Connect></Response>')
+            f'<Connect>{stream}</Connect></Response>')
 
 
 def _create_call(to: str, url: str) -> dict:
@@ -192,17 +197,23 @@ def _sanas_mulaw(sess, payload_b64: str) -> str:
     return base64.b64encode(audioop.lin2ulaw(arr.tobytes(), 2)).decode()
 
 
-def _twiml_human() -> str:
+def _twiml_human(model: str | None = None) -> str:
     if not HUMAN:
         return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
                 '<Say>No human destination is configured yet. Goodbye.</Say></Response>')
+    # fork the call audio through the selected Sanas model (same one-way limitation as
+    # <Dial> mode — runs/measures the model and honors the mid-call on/off toggle)
+    fork = (f'<Start>{_stream_xml("/api/twilio/media", {"model": model or SANAS_MODEL})}</Start>'
+            if (PUBLIC_BASE and _AUDIOOP) else '')
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
             '<Say>Connecting you to a specialist.</Say>'
-            f'<Dial>{escape(HUMAN)}</Dial></Response>')
+            f'{fork}<Dial>{escape(HUMAN)}</Dial></Response>')
 
 
-def _twiml_ivr() -> str:
+def _twiml_ivr(model: str | None = None) -> str:
     action = f"{PUBLIC_BASE}/api/twilio/gather"
+    if model:
+        action += f"?model={urllib.parse.quote(model)}"
     return (
         '<?xml version="1.0" encoding="UTF-8"?><Response>'
         f'<Gather numDigits="1" action="{escape(action)}" method="POST" timeout="8">'
@@ -234,9 +245,11 @@ def _twiml_dialin() -> str:
 def _twiml_dialin_connect(call_sid: str, to: str, model: str | None = None) -> str:
     if not to:
         return _twiml_dialin()
+    stream = _stream_xml("/api/twilio/bridge",
+                         {"id": call_sid, "role": "caller", "model": model or SANAS_MODEL, "to": to})
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
             f'<Say>Connecting you now. {DTMF_MENU}</Say>'
-            f'<Connect><Stream url="{escape(_bridge_ws(call_sid, "caller", model or SANAS_MODEL, to))}"/></Connect>'
+            f'<Connect>{stream}</Connect>'
             '</Response>')
 
 
@@ -262,11 +275,11 @@ async def twilio_voice(request: Request) -> Response:
     elif mode == "dial":
         body = _twiml_dial((params.get("To") or "").strip(), model)
     elif mode == "human":
-        body = _twiml_human()
+        body = _twiml_human(model)
     elif mode == "sanas":
         body = _twiml_sanas_demo(model)
     elif mode == "ivr":
-        body = _twiml_ivr()
+        body = _twiml_ivr(model)
     else:
         body = _twiml_dialin()        # default for an inbound call to the number
     return Response(content=body, media_type="application/xml")
@@ -287,7 +300,10 @@ async def twilio_dialin_connect(request: Request) -> Response:
 async def twilio_gather(request: Request) -> Response:
     form = await request.form()
     digit = (form.get("Digits") or "").strip()
-    body = _twiml_human() if digit == "1" else _twiml_sanas_demo() if digit == "2" else _twiml_ivr()
+    model = request.query_params.get("model") or (form.get("model") or "") or None
+    body = (_twiml_human(model) if digit == "1"
+            else _twiml_sanas_demo(model) if digit == "2"
+            else _twiml_ivr(model))
     return Response(content=body, media_type="application/xml")
 
 
@@ -300,9 +316,12 @@ async def twilio_call(request: Request) -> JSONResponse:
     data = await request.json()
     to = (data.get("to") or "").strip()
     mode = data.get("mode", "ivr")
+    model = (data.get("model") or "").strip()
     if not to:
         return JSONResponse({"ok": False, "detail": "Provide a phone number to call."}, status_code=400)
     voice_url = f"{PUBLIC_BASE}/api/twilio/voice?mode={urllib.parse.quote(mode)}"
+    if model:
+        voice_url += f"&model={urllib.parse.quote(model)}"
     payload = urllib.parse.urlencode({"To": to, "From": NUMBER, "Url": voice_url}).encode()
     api = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls.json"
     auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
@@ -356,6 +375,24 @@ async def twilio_toggle(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "call_sid": call_sid, "enabled": enabled})
 
 
+@router.get("/api/twilio/debug")
+def twilio_debug() -> JSONResponse:
+    """Live snapshot of in-flight call state — poll while a call is up to see whether
+    BOTH legs joined, the active model, and whether Sanas is on. (No audio is exposed.)
+    For a bridge call you want caller_joined AND callee_joined to be true; if only the
+    caller joined, the dialed party never connected (the 'in call, no audio' symptom)."""
+    def _b(b: dict) -> dict:
+        return {"enabled": b.get("enabled"), "model": b.get("model"), "to": b.get("to"),
+                "caller_joined": b.get("caller") is not None,
+                "callee_joined": b.get("callee") is not None,
+                "sanas_session": b.get("sess") is not None}
+    return JSONResponse({
+        "sanas_mode": sanas_client.client.mode,
+        "bridges": {k: _b(v) for k, v in BRIDGES.items()},
+        "streams": {k: {"enabled": v.get("enabled")} for k, v in STREAMS.items()},
+    })
+
+
 @router.get("/api/twilio/token")
 def twilio_token() -> JSONResponse:
     if not _cfg()["browser_voice"]:
@@ -371,7 +408,7 @@ async def twilio_media(ws: WebSocket):
     import asyncio
     await ws.accept()
     loop = asyncio.get_running_loop()
-    model = ws.query_params.get("model", SANAS_MODEL)
+    model = ws.query_params.get("model") or SANAS_MODEL     # fallback; real value in customParameters
     sess = None
     stream_sid = None
     call_sid = None
@@ -388,6 +425,7 @@ async def twilio_media(ws: WebSocket):
             msg = json.loads(raw)
             ev = msg.get("event")
             if ev == "start":
+                model = (msg["start"].get("customParameters") or {}).get("model") or model
                 stream_sid = msg["start"]["streamSid"]
                 call_sid = msg["start"].get("callSid") or stream_sid
                 STREAMS.setdefault(call_sid, {"enabled": True})
@@ -539,37 +577,56 @@ async def twilio_bridge(ws: WebSocket):
     await ws.accept()
     loop = asyncio.get_running_loop()
     qp = ws.query_params
+    # Twilio strips the wss query string, so these are only a fallback — the real
+    # values arrive in the 'start' event's customParameters (set below).
     bid = qp.get("id") or ""
     role = qp.get("role") or "caller"
     model = qp.get("model") or SANAS_MODEL
     to = qp.get("to")
-    br = BRIDGES.setdefault(bid, {"enabled": True})
+    br = None
     stream_sid = None
     try:
         while True:
             msg = json.loads(await ws.receive_text())
             ev = msg.get("event")
+            if ev != "start" and br is None:
+                continue                              # ignore media/dtmf before start
             if ev == "start":
+                cp = msg["start"].get("customParameters") or {}
+                bid = cp.get("id") or bid
+                role = cp.get("role") or role
+                model = cp.get("model") or model
+                to = cp.get("to") or to
+                br = BRIDGES.setdefault(bid, {"enabled": True})
                 stream_sid = msg["start"]["streamSid"]
                 br[role] = ws
                 br[f"{role}_sid"] = stream_sid
+                print(f"[bridge {bid}] {role} stream started", flush=True)
                 if role == "caller":
                     br.setdefault("enabled", True)
                     br["model"] = model
+                    br["to"] = to
                     br["up"] = br["down"] = None
                     br["resid"] = None
                     br["caller_call_sid"] = msg["start"].get("callSid")
+                    print(f"[bridge {bid}] caller joined · to={to!r} · model={model} "
+                          f"· phone_callback={_cfg()['phone_callback']}", flush=True)
                     if sanas_client.client.mode == "real" and _AUDIOOP:
                         try:
                             br["sess"] = await loop.run_in_executor(None, _open_sess, model)
-                        except Exception:
+                            print(f"[bridge {bid}] sanas session opened ({model})", flush=True)
+                        except Exception as e:
                             br["sess"] = None
+                            print(f"[bridge {bid}] sanas session FAILED: {e}", flush=True)
                     # dial the person; their leg streams back as role=callee
                     if to and _cfg()["phone_callback"]:
                         url = f"{PUBLIC_BASE}/api/twilio/voice?mode=bridgeleg&id={urllib.parse.quote(bid)}&model={urllib.parse.quote(model)}"
                         try:
-                            await loop.run_in_executor(None, _create_call, to, url)
+                            res = await loop.run_in_executor(None, _create_call, to, url)
+                            print(f"[bridge {bid}] dialing callee {to} → "
+                                  f"sid={res.get('sid')} status={res.get('status')}", flush=True)
                         except Exception as e:
+                            print(f"[bridge {bid}] callee dial FAILED: {e}", flush=True)
                             # Couldn't reach the callee — tell the caller why instead of
                             # leaving dead air. 21219 = destination not a Verified Caller ID
                             # (trial accounts only); other codes = bad/unreachable number.
