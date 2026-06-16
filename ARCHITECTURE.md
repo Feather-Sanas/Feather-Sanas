@@ -314,15 +314,19 @@ both legs); a `<Dial>` fork can run/measure the model but can't re-inject. See `
 
 ### Grounded citations (`server/webindex.py` + `scripts/index_site.py`)
 `scripts/index_site.py` crawls **sanas.ai** (product/industry/dev pages, the **`/science`
-articles**, and blog & news posts) into `server/web_index.json`. On each chat turn the
-backend retrieves the top-matching pages, passes them to Claude as grounding context, and
-returns them as **clickable source links** the UI renders under the answer.
+articles**, and blog & news posts) **and the help center `help.sanas.ai`** (every article
+in its Document360 `llms.txt` — install/configure/integrate/troubleshoot/portal docs) into
+`server/web_index.json` (~220 pages). On each chat turn the backend retrieves the
+top-matching pages, passes them to Claude as grounding context, and returns them as
+**clickable source links** the UI renders under the answer.
 
-Retrieval is **persona-biased**: `webindex.search(query, prefer=…)` boosts a section for
-the right persona. The **Data Scientist** persona passes `prefer="/science"`, so its
-answers are grounded in and cite the Sanas science write-ups (8→16 kHz upscaling, VAD,
-ASR-optimized NC). The audio showroom's before/after clips are the **real sanas.ai demo
-audio** streamed from the Sanas media CDN (synth fallback if unreachable).
+Retrieval is **intent-biased**: `webindex.search(query, prefer=…)` boosts a section.
+The **Data Scientist** persona passes `prefer="/science"` (grounds answers in the Sanas
+science write-ups — 8→16 kHz upscaling, VAD, ASR-optimized NC). **Support/how-to
+questions** (detected by keywords — install, configure, integrate, troubleshoot, reset,
+audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sani answers from and cites the real
+help docs. The audio showroom's before/after clips are the **real sanas.ai demo audio**
+streamed from the Sanas media CDN (synth fallback if unreachable).
 
 ```
 sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query, prefer)──▶ top pages

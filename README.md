@@ -160,12 +160,14 @@ player:
 ## Grounded answers + sanas.ai citations
 
 `scripts/index_site.py` crawls **sanas.ai** — product, industry, developer, and the
-**`/science` articles** plus blog/news posts — into `server/web_index.json`. On every
-chat turn the backend retrieves the top-matching pages (`server/webindex.py`), passes
-them to Claude as grounding context, and returns them as **clickable source links**
-under the answer. The **Data Scientist** persona biases retrieval toward the science
-articles (`prefer="/science"`), so its answers are grounded in and cite the Sanas
-science write-ups (8→16 kHz upscaling, VAD, ASR-optimized NC, …). Re-index anytime:
+**`/science` articles** plus blog/news posts — **and the help center `help.sanas.ai`**
+(every article in its Document360 `llms.txt`) into `server/web_index.json` (~220 pages).
+On every chat turn the backend retrieves the top-matching pages (`server/webindex.py`),
+passes them to Claude as grounding context, and returns them as **clickable source
+links** under the answer. Retrieval is intent-biased: the **Data Scientist** persona
+prefers the science articles (`prefer="/science"`), and **support/how-to questions**
+(install, configure, integrate, troubleshoot, reset password, …) prefer the help center
+(`prefer="help.sanas.ai"`) so Sani answers from and cites the real help docs. Re-index anytime:
 
 ```bash
 server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (public content)

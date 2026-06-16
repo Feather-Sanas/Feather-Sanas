@@ -100,10 +100,25 @@ def _last_user(msgs: list[dict]) -> str:
     return ""
 
 
-def _prefer(persona: str | None) -> str | None:
-    """Bias retrieval toward a site section for certain personas. Data scientists
-    get grounded in the Sanas science articles (sanas.ai/science)."""
-    return "/science" if persona == "data_scientist" else None
+_SUPPORT_KW = (
+    "install", "set up", "setup", "configure", "config", "integrat", "troubleshoot",
+    "not working", "doesn't work", "can't", "cannot", "can not", "error", "crash",
+    " fix", "reset", "password", "log in", "login", "sign in", "sso", "dialer",
+    "microphone", " mic ", "headset", "device", "audio", "echo", "uninstall",
+    "update", "activate", "activation", "portal", "how do i", "how to", "step by step",
+    "settings", "setting", "no sound", "can i hear", "hear me", "hear the",
+)
+
+
+def _prefer(persona: str | None, query: str = "") -> str | None:
+    """Bias retrieval toward a section. Data scientists get grounded in the science
+    articles; support/how-to questions get grounded in the help center."""
+    if persona == "data_scientist":
+        return "/science"
+    q = (query or "").lower()
+    if any(k in q for k in _SUPPORT_KW):
+        return "help.sanas.ai"
+    return None
 
 
 class ChatTurn(BaseModel):
@@ -127,7 +142,8 @@ def chat(req: ChatReq) -> JSONResponse:
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
-    sources = webindex.search(_last_user(msgs), k=3, prefer=_prefer(req.persona))
+    _q = _last_user(msgs)
+    sources = webindex.search(_q, k=3, prefer=_prefer(req.persona, _q))
     text = llm.chat(msgs, req.persona, req.skeptic, context=sources)
     return JSONResponse({
         "text": text,
@@ -147,7 +163,8 @@ def chat_stream(req: ChatReq):
         msgs.pop(0)
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
-    sources = webindex.search(_last_user(msgs), k=3, prefer=_prefer(req.persona))
+    _q = _last_user(msgs)
+    sources = webindex.search(_q, k=3, prefer=_prefer(req.persona, _q))
     src_hdr = json.dumps([{"title": s["title"], "url": s["url"]} for s in sources])  # ASCII, one line
     if not llm.available():
         return Response(content=b"", media_type="text/plain",

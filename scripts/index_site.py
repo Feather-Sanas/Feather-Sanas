@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Index https://www.sanas.ai (product/industry/science pages + the blog & news posts)
-into server/web_index.json. The backend uses it to ground Sani's chat answers and
-cite real page links.
+AND the help center https://help.sanas.ai (Document360 — every article listed in its
+llms.txt) into server/web_index.json. The backend uses it to ground Sani's chat
+answers and cite real page links.
 
 Run (needs network):
     python3 scripts/index_site.py
-Re-run anytime to refresh; safe to commit the JSON (public marketing content).
+Re-run anytime to refresh; safe to commit the JSON (public marketing/help content).
 """
 from __future__ import annotations
 
@@ -39,6 +40,9 @@ MAX_PAGES = 90
 SKIP_SLUG = re.compile(r"/(blog|news|science)/(layout|loading|page)-")
 
 
+HELP_LLMS = "https://help.sanas.ai/llms.txt"   # Document360 index of every help article
+
+
 def fetch(url: str) -> str | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": UA})
@@ -52,9 +56,21 @@ def fetch(url: str) -> str | None:
         return None
 
 
+def fetch_text(url: str) -> str | None:
+    """Fetch any text resource (no content-type gate — llms.txt is text/plain)."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20, context=_CTX) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        print(f"  ! {url}: {type(e).__name__}", file=sys.stderr)
+        return None
+
+
 class _Extract(HTMLParser):
-    """Pull visible text + <title>/og:title, skipping script/style/nav noise."""
-    _SKIP = {"script", "style", "noscript", "svg", "head"}
+    """Pull visible text + <title>/og:title, skipping script/style/chrome noise.
+    nav/aside/footer are skipped so help-center side navs don't pollute the text."""
+    _SKIP = {"script", "style", "noscript", "svg", "head", "nav", "aside", "footer"}
 
     def __init__(self):
         super().__init__()
@@ -104,6 +120,46 @@ def parse(html: str) -> tuple[str, str, list[str]]:
     return title, text, links
 
 
+def index_help(pages: list, seen: set) -> None:
+    """Index help.sanas.ai. Its llms.txt lists every article as [Title](…/<slug>.md);
+    the .md isn't served, so we read each human HTML page and add it to the index."""
+    raw = fetch_text(HELP_LLMS)
+    if not raw:
+        print("  ! help.sanas.ai/llms.txt unavailable — skipping help center")
+        return
+    entries = re.findall(r"\[([^\]]+)\]\((https://help\.sanas\.ai/[^)\s]+?)\.md\)", raw)
+    # de-dupe by URL, preserve order
+    seen_urls, docs = set(), []
+    for title, url in entries:
+        if url not in seen_urls:
+            seen_urls.add(url)
+            docs.append((title.strip(), url))
+    print(f"Indexing {HELP_LLMS.rsplit('/', 1)[0]} … ({len(docs)} help docs)")
+    n = 0
+    for title, url in docs:
+        if url in seen:
+            continue
+        seen.add(url)
+        html = fetch(url)
+        if not html:
+            continue
+        _t, text, _l = parse(html)
+        # isolate the article body from Document360 chrome: the body sits between the
+        # "… minute(s) read" byline and the "Was this article helpful" footer.
+        m = re.search(r"minute\(s\)\s+read", text)
+        if m:
+            text = text[m.end():]
+        text = re.split(r"Was this article helpful", text, maxsplit=1)[0].strip()
+        if text.startswith("Article "):
+            text = text[len("Article "):]
+        if text and len(text) > 80:
+            pages.append({"url": url, "title": title or url, "text": text[:4500]})
+            n += 1
+            print(f"  + [help] {title[:55] or url}")
+        time.sleep(0.12)
+    print(f"  …added {n} help pages")
+
+
 def main() -> int:
     seen: set[str] = set()
     queue = [BASE + p for p in SEED_PATHS]
@@ -128,6 +184,7 @@ def main() -> int:
             pages.append({"url": url, "title": title or url, "text": text[:4500]})
             print(f"  + {title[:60] or url}")
         time.sleep(0.15)
+    index_help(pages, seen)
     OUT.write_text(json.dumps({"base": BASE, "pages": pages}, ensure_ascii=False, indent=0))
     print(f"\nWrote {len(pages)} pages → {OUT}")
     return 0
