@@ -37,15 +37,42 @@ MAX_TOKENS = int(os.getenv("SAN_LLM_MAX_TOKENS", "4096"))
 _THINKING_ON = os.getenv("SAN_LLM_THINKING", "adaptive").lower() not in ("off", "0", "disabled", "none", "")
 _EFFORT = os.getenv("SAN_LLM_EFFORT", "medium")  # low | medium | high | max
 _client = None
+# Adaptive thinking + effort need a recent anthropic SDK / API. Older SDKs (e.g.
+# 0.69.0) reject `output_config` with a TypeError. We attempt the advanced params
+# once; if unsupported we latch this off and fall back to a plain call, so chat
+# keeps working on any SDK and lights up adaptive automatically on a newer one.
+_adv = [_THINKING_ON]
+_ADV_MARKERS = ("output_config", "unexpected keyword", "adaptive", "effort", "thinking")
 
 
-def _model_kwargs() -> dict:
-    """Shared per-request model params. Adaptive thinking + effort when enabled."""
-    kw = {"model": MODEL, "max_tokens": MAX_TOKENS}
-    if _THINKING_ON:
-        kw["thinking"] = {"type": "adaptive"}
-        kw["output_config"] = {"effort": _EFFORT}
-    return kw
+def _adv_unsupported(e: Exception) -> bool:
+    return isinstance(e, TypeError) or any(m in str(e).lower() for m in _ADV_MARKERS)
+
+
+def _create(client, **call):
+    """messages.create with adaptive thinking when supported, else a plain call."""
+    if _adv[0]:
+        try:
+            return client.messages.create(model=MODEL, max_tokens=MAX_TOKENS,
+                thinking={"type": "adaptive"}, output_config={"effort": _EFFORT}, **call)
+        except Exception as e:
+            if not _adv_unsupported(e):
+                raise
+            _adv[0] = False     # latch off; this SDK/model doesn't take the params
+    return client.messages.create(model=MODEL, max_tokens=MAX_TOKENS, **call)
+
+
+def _open_stream(client, **call):
+    """messages.stream variant of _create (returns the stream context manager)."""
+    if _adv[0]:
+        try:
+            return client.messages.stream(model=MODEL, max_tokens=MAX_TOKENS,
+                thinking={"type": "adaptive"}, output_config={"effort": _EFFORT}, **call)
+        except Exception as e:
+            if not _adv_unsupported(e):
+                raise
+            _adv[0] = False
+    return client.messages.stream(model=MODEL, max_tokens=MAX_TOKENS, **call)
 
 
 def available() -> bool:
@@ -160,10 +187,8 @@ def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
     if client is None:
         return None
     try:
-        resp = client.messages.create(
-            **_model_kwargs(),
-            system=_system_blocks(persona, skeptic, context), messages=messages,
-        )
+        resp = _create(client,
+            system=_system_blocks(persona, skeptic, context), messages=messages)
         # thinking blocks are skipped here — only the final text is returned
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:
@@ -178,8 +203,7 @@ def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float
     if client is None:
         return
     try:
-        with client.messages.stream(
-            **_model_kwargs(),
+        with _open_stream(client,
             system=_system_blocks(persona, skeptic, context), messages=messages,
         ) as stream:
             # text_stream yields only text deltas — adaptive thinking stays silent,
