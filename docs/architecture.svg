@@ -1,0 +1,98 @@
+<svg viewBox="0 0 1000 668" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+<title>Sani app architecture</title>
+<desc>The browser talks to one FastAPI backend that holds all secrets and brokers Claude, the Sanas speech engine, Whisper, the sanas.ai index, and Twilio telephony.</desc>
+<defs>
+<marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="#777"/></marker>
+<marker id="ag" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="#16c47f"/></marker>
+<marker id="ahx" markerWidth="9" markerHeight="9" refX="2" refY="4" orient="auto"><path d="M8 0L0 4L8 8z" fill="#777"/></marker>
+</defs>
+<rect x="0" y="0" width="1000" height="668" fill="#ffffff"/>
+
+<text x="24" y="22" font-size="12" font-weight="500" fill="#777">Browser — one origin, :8000</text>
+
+<rect x="40" y="34" width="270" height="60" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="175" y="60" font-size="13" font-weight="500" text-anchor="middle" fill="#111">Sani front-end</text>
+<text x="175" y="80" font-size="11" text-anchor="middle" fill="#777">chat · Playground · live mic</text>
+
+<rect x="365" y="34" width="250" height="60" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="490" y="60" font-size="13" font-weight="500" text-anchor="middle" fill="#111">Web Audio</text>
+<text x="490" y="80" font-size="11" text-anchor="middle" fill="#777">capture · playback · spectrogram</text>
+
+<rect x="690" y="34" width="270" height="60" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="825" y="60" font-size="13" font-weight="500" text-anchor="middle" fill="#111">Twilio Voice SDK</text>
+<text x="825" y="80" font-size="11" text-anchor="middle" fill="#777">WebRTC browser calls</text>
+
+<line x1="175" y1="94" x2="175" y2="150" stroke="#777" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="185" y="126" font-size="10.5" fill="#777">HTTPS REST · WebSocket (PCM)</text>
+
+<path d="M825 94 L988 94 L988 492 L956 492" fill="none" stroke="#777" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="858" y="110" font-size="10.5" fill="#777">WebRTC media</text>
+
+<rect x="24" y="152" width="952" height="208" rx="10" fill="none" stroke="#ddd"/>
+<text x="40" y="176" font-size="13" font-weight="500" fill="#111">FastAPI backend (uvicorn · py3.10)</text>
+<text x="40" y="194" font-size="11" fill="#777">main.py — REST + WebSocket router · serves the UI · all secrets live in .env, never sent to the browser</text>
+
+<rect x="40" y="222" width="176" height="94" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="128" y="252" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">llm.py</text>
+<text x="128" y="274" font-size="11" text-anchor="middle" fill="#777">Claude</text>
+<text x="128" y="291" font-size="11" text-anchor="middle" fill="#777">adaptive thinking</text>
+
+<rect x="224" y="222" width="176" height="94" rx="6" fill="#fff" stroke="#16c47f" stroke-width="2"/>
+<text x="312" y="252" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">sanas_client.py</text>
+<text x="312" y="274" font-size="11" text-anchor="middle" fill="#777">RemoteSDK ·</text>
+<text x="312" y="291" font-size="11" text-anchor="middle" fill="#777">StreamSession</text>
+
+<rect x="408" y="222" width="176" height="94" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="496" y="252" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">asr.py</text>
+<text x="496" y="274" font-size="11" text-anchor="middle" fill="#777">Whisper · WER</text>
+
+<rect x="592" y="222" width="176" height="94" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="680" y="252" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">webindex.py</text>
+<text x="680" y="274" font-size="11" text-anchor="middle" fill="#777">grounds answers</text>
+
+<rect x="776" y="222" width="176" height="94" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="864" y="252" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">twilio_routes.py</text>
+<text x="864" y="274" font-size="11" text-anchor="middle" fill="#777">IVR · bridge ·</text>
+<text x="864" y="291" font-size="11" text-anchor="middle" fill="#777">DTMF</text>
+
+<text x="24" y="408" font-size="12" font-weight="500" fill="#777">External services</text>
+
+<rect x="40" y="438" width="176" height="84" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="128" y="470" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">Anthropic API</text>
+<text x="128" y="490" font-size="11" text-anchor="middle" fill="#777">api.anthropic.com</text>
+
+<rect x="224" y="438" width="176" height="84" rx="6" fill="#fff" stroke="#16c47f" stroke-width="2"/>
+<text x="312" y="470" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">Sanas Cloud</text>
+<text x="312" y="490" font-size="11" text-anchor="middle" fill="#777">SIP/RTP speech engine</text>
+
+<rect x="408" y="438" width="176" height="84" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="496" y="470" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">Whisper model</text>
+<text x="496" y="490" font-size="11" text-anchor="middle" fill="#777">local, in-process</text>
+
+<rect x="592" y="438" width="176" height="84" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="680" y="470" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">sanas.ai</text>
+<text x="680" y="490" font-size="11" text-anchor="middle" fill="#777">→ web_index.json</text>
+
+<rect x="776" y="438" width="176" height="84" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="864" y="470" font-size="12.5" font-weight="500" text-anchor="middle" fill="#111">Twilio</text>
+<text x="864" y="490" font-size="11" text-anchor="middle" fill="#777">PSTN · Media Streams</text>
+
+<line x1="128" y1="316" x2="128" y2="438" stroke="#777" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="134" y="382" font-size="10" fill="#777">x-api-key</text>
+<line x1="312" y1="316" x2="312" y2="438" stroke="#16c47f" stroke-width="2" marker-end="url(#ag)"/>
+<text x="318" y="382" font-size="10" fill="#0a8f5f">SIP/RTP</text>
+<line x1="496" y1="316" x2="496" y2="438" stroke="#777" stroke-width="1.5" marker-end="url(#ah)"/>
+<line x1="680" y1="438" x2="680" y2="316" stroke="#777" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="686" y="382" font-size="10" fill="#777">index_site.py</text>
+<line x1="864" y1="316" x2="864" y2="438" stroke="#777" stroke-width="1.5" marker-start="url(#ahx)" marker-end="url(#ah)"/>
+<text x="788" y="382" font-size="10" fill="#777">μ-law 8k stream</text>
+
+<rect x="776" y="566" width="176" height="40" rx="6" fill="#fff" stroke="#ccc"/>
+<text x="864" y="591" font-size="11.5" text-anchor="middle" fill="#111">Phone (PSTN caller)</text>
+<line x1="864" y1="566" x2="864" y2="522" stroke="#777" stroke-width="1.5" marker-start="url(#ahx)" marker-end="url(#ah)"/>
+
+<rect x="40" y="566" width="14" height="14" rx="3" fill="none" stroke="#16c47f" stroke-width="2"/>
+<text x="62" y="577" font-size="11" fill="#777">real-time Sanas audio path</text>
+<rect x="40" y="588" width="14" height="14" rx="3" fill="#fff" stroke="#ccc"/>
+<text x="62" y="599" font-size="11" fill="#777">control / data flow · public calls reach the backend via Caddy (TLS) or ngrok</text>
+</svg>

@@ -7,6 +7,8 @@ This build implements **Phase 1 (MVP)**: trusted education, a recommendation eng
 persona-aware routing, developer tooling, and self-observability — plus a **real
 Sanas SDK integration** for live audio processing on uploaded clips.
 
+![Sani architecture — the browser, the secret-holding FastAPI backend, and the external services (Sanas Cloud, Anthropic, Whisper, the sanas.ai index, and Twilio)](docs/architecture.svg)
+
 > 📐 **Architecture & diagrams:** see [ARCHITECTURE.md](ARCHITECTURE.md) for the system
 > diagram, component map, API surface, and the chat / upload / live-mic / ASR flows.
 

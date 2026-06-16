@@ -12,6 +12,8 @@ code that talks to the native Sanas Remote SDK. The browser never sees a credent
 - **Stack:** vanilla JS + Web Audio (no framework) · FastAPI/uvicorn (Python 3.10) ·
   `sanas_remote_sdk` (native wheel) · Anthropic SDK (Claude) · faster-whisper (ASR).
 
+![Sani architecture — the browser, the secret-holding FastAPI backend, and the external services](docs/architecture.svg)
+
 ---
 
 ## 1. High-level architecture
