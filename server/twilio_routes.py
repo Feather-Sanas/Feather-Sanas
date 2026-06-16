@@ -123,8 +123,9 @@ def _twiml_dial(to: str, model: str | None = None) -> str:
     fork = (f'<Start>{_stream_xml("/api/twilio/media", {"model": model or SANAS_MODEL})}</Start>'
             if (PUBLIC_BASE and _AUDIOOP) else '')
     caller = f' callerId="{escape(NUMBER)}"' if NUMBER else ''
+    # record both legs so the call can be fetched + analyzed afterward
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
-            f'{fork}<Dial{caller}><Number>{escape(to)}</Number></Dial></Response>')
+            f'{fork}<Dial{caller} record="record-from-answer-dual"><Number>{escape(to)}</Number></Dial></Response>')
 
 
 # ---- true in-path bridge: two <Connect><Stream> legs joined on our server -----
@@ -322,7 +323,10 @@ async def twilio_call(request: Request) -> JSONResponse:
     voice_url = f"{PUBLIC_BASE}/api/twilio/voice?mode={urllib.parse.quote(mode)}"
     if model:
         voice_url += f"&model={urllib.parse.quote(model)}"
-    payload = urllib.parse.urlencode({"To": to, "From": NUMBER, "Url": voice_url}).encode()
+    # record the whole call so the app can fetch it afterward and analyze it like an upload
+    payload = urllib.parse.urlencode({"To": to, "From": NUMBER, "Url": voice_url,
+                                      "Record": "true", "RecordingChannels": "mono",
+                                      "Trim": "trim-silence"}).encode()
     api = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls.json"
     auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
     req = urllib.request.Request(api, data=payload, method="POST",
@@ -336,6 +340,42 @@ async def twilio_call(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "detail": f"Twilio {e.code}: {e.read().decode()[:200]}"}, status_code=200)
     except Exception as e:
         return JSONResponse({"ok": False, "detail": f"{type(e).__name__}: {e}"}, status_code=200)
+
+
+@router.get("/api/twilio/recording")
+async def twilio_recording(call_sid: str = "") -> Response:
+    """Proxy the Twilio recording of a finished call (Basic-auth stays server-side).
+    Returns the WAV when ready, else {"ready": false}. The front-end polls this after
+    a call and then runs the recording through /api/process — like an uploaded clip."""
+    import asyncio
+    if not (call_sid and SID and TOKEN):
+        return JSONResponse({"ready": False, "detail": "missing call_sid or credentials"})
+    auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
+
+    def _fetch():
+        list_url = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Calls/{call_sid}/Recordings.json"
+        req = urllib.request.Request(list_url, headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            recs = json.loads(r.read().decode()).get("recordings", [])
+        done = [x for x in recs if x.get("status") == "completed"]
+        if not done:
+            return None, None
+        rec = done[0]
+        media = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/Recordings/{rec['sid']}.wav"
+        mreq = urllib.request.Request(media, headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(mreq, timeout=30) as r:
+            return r.read(), rec
+
+    try:
+        wav, rec = await asyncio.get_running_loop().run_in_executor(None, _fetch)
+    except Exception as e:
+        return JSONResponse({"ready": False, "detail": str(e)[:200]})
+    if not wav:
+        return JSONResponse({"ready": False})
+    return Response(content=wav, media_type="audio/wav",
+                    headers={"X-Recording-Sid": rec.get("sid", ""),
+                             "X-Recording-Duration": str(rec.get("duration", "")),
+                             "Access-Control-Expose-Headers": "*"})
 
 
 # ---- Voice access token for the browser SDK (hand-signed JWT) ---------------
