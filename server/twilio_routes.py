@@ -279,6 +279,8 @@ async def twilio_voice(request: Request) -> Response:
         body = _twiml_human(model)
     elif mode == "sanas":
         body = _twiml_sanas_demo(model)
+    elif mode == "demo":          # guided voice agent that walks through every model
+        body = _twiml_demo_step(0, intro=True)
     elif mode == "ivr":
         body = _twiml_ivr(model)
     else:
@@ -376,6 +378,218 @@ async def twilio_recording(call_sid: str = "") -> Response:
                     headers={"X-Recording-Sid": rec.get("sid", ""),
                              "X-Recording-Duration": str(rec.get("duration", "")),
                              "Access-Control-Expose-Headers": "*"})
+
+
+# ---- Guided voice-agent demo: walk the caller through every Sanas model ------
+# Speech-primary control (faster-whisper on the live line) with keypad fallback.
+DEMO_SEQUENCE = [
+    ("AGENTIC_VI_GT_NC", "Noise Cancellation for telephony"),
+    ("SE2.2",            "Speech Enhancement"),
+    ("VI_G_NC3.0",       "Noise Cancellation with voice isolation"),
+]
+DEMO: dict[str, dict] = {}    # call_sid -> {"goto": "next"|"agent"}
+LEADS: list[dict] = []        # callback requests captured at the end of the demo
+
+
+def _demo_intro() -> str:
+    return ('<Say>Welcome to the Sanas live model demo. I will play your own voice through each '
+            'of our models so you can hear the difference. After each prompt, speak a sentence — '
+            'you will hear your raw line first, then the same audio cleaned by Sanas. '
+            'Just say "next" to move on, "repeat" to hear it again, or "agent" to talk to a person.</Say>')
+
+
+def _twiml_demo_step(i: int, intro: bool = False) -> str:
+    if i >= len(DEMO_SEQUENCE):
+        return _twiml_demo_outro()
+    model, label = DEMO_SEQUENCE[i]
+    stream = _stream_xml("/api/twilio/demo", {"model": model, "i": str(i)})
+    nxt = escape(f"{PUBLIC_BASE}/api/twilio/demo-step?i={i + 1}")
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'{_demo_intro() if intro else ""}'
+            f'<Say>Model {i + 1} of {len(DEMO_SEQUENCE)}: {escape(label)}. Speak now — you will hear '
+            'it raw first, then with Sanas. Say "next" when you are ready.</Say>'
+            f'<Connect>{stream}</Connect>'
+            f'<Redirect>{nxt}</Redirect></Response>')
+
+
+def _twiml_demo_outro() -> str:
+    action = escape(f"{PUBLIC_BASE}/api/twilio/demo-callback")
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'<Gather input="speech dtmf" numDigits="1" speechTimeout="auto" action="{action}" method="POST">'
+            '<Say>That is the full lineup. Would you like someone from Sanas to call you to talk about your '
+            'workload and pricing, and tailor a plan to your needs? Say yes or no — or press 1 for yes.</Say>'
+            f'</Gather><Redirect>{action}</Redirect></Response>')
+
+
+@router.api_route("/api/twilio/demo-step", methods=["GET", "POST"])
+async def twilio_demo_step(request: Request) -> Response:
+    qp = dict(request.query_params)
+    form = {}
+    if request.method == "POST":
+        try: form = dict(await request.form())
+        except Exception: pass
+    sid = form.get("CallSid") or qp.get("CallSid") or ""
+    if sid and DEMO.get(sid, {}).get("goto") == "agent":   # caller asked for a person mid-demo
+        DEMO.pop(sid, None)
+        return Response(_twiml_human(SANAS_MODEL), media_type="application/xml")
+    i = int(qp.get("i") or form.get("i") or 0)
+    return Response(_twiml_demo_step(i), media_type="application/xml")
+
+
+@router.post("/api/twilio/demo-callback")
+async def twilio_demo_callback(request: Request) -> Response:
+    form = await request.form()
+    speech = (form.get("SpeechResult") or "").lower()
+    digit = (form.get("Digits") or "").strip()
+    frm = form.get("From") or form.get("Caller") or ""
+    yes = digit == "1" or any(w in speech for w in ("yes", "sure", "ok", "okay", "please", "yeah", "yep", "definitely"))
+    if yes:
+        LEADS.append({"number": frm, "stage": "callback_requested", "speech": speech})
+        print(f"[demo-lead] callback requested by {frm!r} :: {speech!r}", flush=True)
+        action = escape(f"{PUBLIC_BASE}/api/twilio/demo-lead")
+        return Response('<?xml version="1.0" encoding="UTF-8"?><Response>'
+                        f'<Gather input="speech" speechTimeout="auto" action="{action}" method="POST">'
+                        '<Say>Great. So we can prepare, roughly how many agents or seats are we talking about, '
+                        'and what is the main use case?</Say></Gather>'
+                        f'<Redirect>{action}</Redirect></Response>', media_type="application/xml")
+    print(f"[demo-lead] {frm!r} declined a callback", flush=True)
+    return Response('<?xml version="1.0" encoding="UTF-8"?><Response>'
+                    '<Say>No problem. Thanks for trying the Sanas demo. Goodbye.</Say><Hangup/></Response>',
+                    media_type="application/xml")
+
+
+@router.post("/api/twilio/demo-lead")
+async def twilio_demo_lead(request: Request) -> Response:
+    form = await request.form()
+    detail = (form.get("SpeechResult") or "").strip()
+    frm = form.get("From") or form.get("Caller") or ""
+    LEADS.append({"number": frm, "stage": "details", "workload": detail})
+    print(f"[demo-lead] details from {frm!r} :: {detail!r}", flush=True)
+    return Response('<?xml version="1.0" encoding="UTF-8"?><Response>'
+                    '<Say>Thank you. A Sanas specialist will reach out shortly to tailor a plan to your needs. '
+                    'Goodbye.</Say><Hangup/></Response>', media_type="application/xml")
+
+
+@router.websocket("/api/twilio/demo")
+async def twilio_demo(ws: WebSocket):
+    """One model segment of the guided demo: loops the caller's audio through the model
+    (raw for the first ~5s, then Sanas, with a beep between), advances on a spoken
+    command (faster-whisper) or keypad, and closes so the next TwiML step runs."""
+    import asyncio, time
+    try:
+        import asr
+    except Exception:
+        asr = None
+    await ws.accept()
+    loop = asyncio.get_running_loop()
+    model = ws.query_params.get("model") or SANAS_MODEL
+    stream_sid = call_sid = None
+    sess = None
+    residual = np.zeros(0, dtype=np.int16)
+    frame = int(TW_SR * 0.02)
+    state = {"on": False, "frames": 0, "cmd": None}     # on=Sanas vs raw; cmd set by ASR task
+    cmd_buf: list = []
+    cmd_busy = {"v": False}
+    RAW_FRAMES, MAX_FRAMES, CMD_EVERY = 250, 1800, 130   # ~5s raw, ~36s cap, ~2.6s ASR window
+
+    async def beep(freq=1320):
+        if not (stream_sid and _AUDIOOP):
+            return
+        n = int(TW_SR * 0.18); win = np.hanning(n)
+        pcm = (np.sin(2 * np.pi * freq * np.arange(n) / TW_SR) * 7000 * win).astype(np.int16)
+        await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
+                                       "media": {"payload": base64.b64encode(audioop.lin2ulaw(pcm.tobytes(), 2)).decode()}}))
+
+    async def check_cmd(samples):
+        if cmd_busy["v"] or not (asr and asr.available()):
+            return
+        cmd_busy["v"] = True
+        try:
+            res = await loop.run_in_executor(None, asr.transcribe, samples, TW_SR)
+            txt = ((res or {}).get("text") or "").lower()
+            if any(w in txt for w in ("next", "continue", "move on", "skip", "go on")): state["cmd"] = "next"
+            elif "repeat" in txt or "again" in txt: state["cmd"] = "repeat"
+            elif any(w in txt for w in ("agent", "human", "person", "someone", "representative", "sales")): state["cmd"] = "agent"
+        except Exception:
+            pass
+        finally:
+            cmd_busy["v"] = False
+
+    def echo(p): return ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": p}}))
+
+    try:
+        while True:
+            msg = json.loads(await ws.receive_text())
+            ev = msg.get("event")
+            if ev == "start":
+                cp = msg["start"].get("customParameters") or {}
+                model = cp.get("model") or model
+                stream_sid = msg["start"]["streamSid"]
+                call_sid = msg["start"].get("callSid") or stream_sid
+                if sanas_client.client.mode == "real" and _AUDIOOP:
+                    try:
+                        sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, TW_SR)
+                        frame = sess.frame_samples
+                    except Exception:
+                        sess = None
+            elif ev == "dtmf":
+                d = (msg.get("dtmf") or {}).get("digit")
+                if d == "1": state["cmd"] = "next"
+                elif d == "2": state["cmd"] = "repeat"
+                elif d in ("0", "9"): state["cmd"] = "agent"
+            elif ev == "media":
+                pcm = audioop.ulaw2lin(base64.b64decode(msg["media"]["payload"]), 2)
+                ints = np.frombuffer(pcm, dtype=np.int16)
+                # collect inbound audio for the ASR command window
+                if asr and asr.available():
+                    cmd_buf.append(ints)
+                state["frames"] += 1
+                if not state["on"] and state["frames"] >= RAW_FRAMES:
+                    state["on"] = True
+                    await beep(_TONE_HZ.get(model, 1320))      # raw → Sanas transition cue
+                # fire an ASR command check on a rolling window
+                if asr and asr.available() and state["frames"] % CMD_EVERY == 0 and cmd_buf:
+                    snap = np.concatenate(cmd_buf)[-TW_SR * 3:]
+                    cmd_buf.clear()
+                    asyncio.create_task(check_cmd(snap))
+                # play raw or Sanas
+                if sess is None or not _AUDIOOP or not state["on"]:
+                    await echo(msg["media"]["payload"])
+                else:
+                    buf = np.concatenate([residual, ints]); n = len(buf) // frame
+                    if n == 0:
+                        residual = buf
+                    else:
+                        chunk, residual = buf[:n * frame], buf[n * frame:]
+                        floats = chunk.astype(np.float32) / 32768.0
+
+                        def run():
+                            out = []
+                            for i in range(n):
+                                out.extend(sess.process(floats[i * frame:(i + 1) * frame].tolist()))
+                            return out
+                        out = await loop.run_in_executor(None, run)
+                        arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+                        await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
+                                                       "media": {"payload": base64.b64encode(audioop.lin2ulaw(arr.tobytes(), 2)).decode()}}))
+                # act on a command (or hit the time cap)
+                if state["cmd"] == "repeat":
+                    state["cmd"] = None; state["on"] = False; state["frames"] = 0
+                    await beep(660)
+                elif state["cmd"] in ("next", "agent") or state["frames"] >= MAX_FRAMES:
+                    if state["cmd"] == "agent":
+                        DEMO[call_sid] = {"goto": "agent"}
+                    break
+            elif ev == "stop":
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if sess is not None:
+            try: await loop.run_in_executor(None, sess.close)
+            except Exception: pass
 
 
 # ---- Voice access token for the browser SDK (hand-signed JWT) ---------------

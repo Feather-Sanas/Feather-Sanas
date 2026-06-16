@@ -1155,7 +1155,7 @@ function twilioConnectNode() {
       const r = await fetch(SAN_API + '/api/twilio/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, mode, model }) });
       const d = await r.json();
       if (d.ok) {
-        status.textContent = `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : 'use the IVR'}${model ? ' · Sanas ' + model : ''}. [${d.status || 'queued'}]`;
+        status.textContent = `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : mode === 'demo' ? 'be walked through every model by voice' : 'use the IVR'}${model ? ' · Sanas ' + model : ''}. [${d.status || 'queued'}]`;
         if (d.sid && toggleMount) toggleMount.appendChild(callToggle({ call_sid: d.sid }));
         if (d.sid && onPlaced) onPlaced(d.sid);
       } else if (/21219|unverified|trial account/i.test(d.detail || '')) {
@@ -1189,6 +1189,7 @@ function twilioConnectNode() {
     };
     if (cfg.phone_callback) {
       addOpt('human', 'Talk to a human', !cfg.human_dial);
+      addOpt('demo', 'Guided model demo (voice agent)');
       addOpt('ivr', 'Speak to the IVR');
       addOpt('sanas', 'Hear Sanas on the call');
     }
