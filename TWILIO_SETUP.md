@@ -160,13 +160,45 @@ on upgrade too.
 
 ---
 
+## Live-call test checklist
+
+**Pre-flight (once per session):**
+- Account is **Full** (or the destination is a Verified Caller ID) — see the trial callout near the top.
+- Tunnel is up and matched: `http://127.0.0.1:4040` shows the public URL, and `PUBLIC_BASE_URL` (in `server/.env`), the number's Voice webhook, and the TwiML App Voice URL all point at it.
+- Backend healthy: `curl -s 127.0.0.1:8000/api/health`.
+- For **speech control** in the guided demo, `faster-whisper` must be installed (`/api/health` → `asr_available: true`); otherwise use the keypad.
+
+**Watch side by side:**
+- ngrok inspector `http://127.0.0.1:4040` — every webhook hit (replayable).
+- `tail -f /tmp/san-server.log | grep -E "bridge|demo|media"` — leg connects, model switches, `[demo-lead]` captures.
+- `curl -s 127.0.0.1:8000/api/twilio/debug | python3 -m json.tool` — live legs + captured **leads**.
+- Twilio Console → Monitor → Logs for call-level errors.
+
+**Per path — do → expect:**
+
+| Path | Do | Expect |
+|---|---|---|
+| Dial-in bridge | Call the Twilio number, key a destination, `#` | Two-way; your voice cleaned in-path; `1/2/3` switch model (tone), `0` = off |
+| Browser, hear-yourself | "Talk in the browser", blank number | You hear yourself through the model; mid-call ON/OFF toggle works |
+| Browser dial | "Talk in the browser" + a number | Two-way call; on hang-up the recording auto-fetches + analyzes |
+| Call me / human / IVR / Sanas | Pick the mode + your number | Twilio calls you; afterward "Get & analyze the call recording" fetches it |
+| Guided model demo | "Guided model demo (voice agent)" + your number | Agent walks each model (raw → beep → Sanas); say **next / repeat / agent**; ends asking for a callback |
+
+**Guided-demo close:** saying **yes** (or pressing 1) to the callback question captures the number + a follow-up "how many seats / use case" answer as a lead — it shows up under `leads` in `/api/twilio/debug` and as `[demo-lead]` in the server log.
+
+**Gotchas:** the call recording lands a few seconds after the call ends (the fetch polls and offers "check again"); if the ngrok URL changed, re-point `PUBLIC_BASE_URL` + both webhooks; speech control needs `faster-whisper`.
+
+---
+
 ## How it's wired (reference)
 
-- `GET/POST /api/twilio/voice` — TwiML. No mode (inbound) → **dial-in prompt**; `mode=ivr|human|sanas|dial|bridge|bridgeleg`.
+- `GET/POST /api/twilio/voice` — TwiML. No mode (inbound) → **dial-in prompt**; `mode=ivr|human|sanas|demo|dial|bridge|bridgeleg`.
 - `POST /api/twilio/dialin-connect` — gathers the keyed number → bridges via `<Connect><Stream>`.
 - `WS /api/twilio/bridge` — joins **caller** + **callee** legs; caller audio → Sanas → callee; relays callee → caller; reads **DTMF** to switch model / toggle; injects confirmation tones. Resamples 8 kHz ↔ 16 kHz models.
 - `WS /api/twilio/media` — single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back.
+- **Guided demo** — `POST /api/twilio/demo-step` (per-model state machine), `WS /api/twilio/demo` (raw↔Sanas A/B + speech/DTMF advance), `POST /api/twilio/demo-callback` + `/api/twilio/demo-lead` (the callback dialog + lead capture).
+- `GET /api/twilio/recording?call_sid=…` — proxies the finished call's recording WAV (for the upload-style analysis).
 - `POST /api/twilio/toggle {call_sid|bridge_id, enabled}` — mid-call On/Off.
-- `POST /api/twilio/call` — REST click-to-call.  `GET /api/twilio/token` — browser Voice access token.
+- `POST /api/twilio/call` — REST click-to-call.  `GET /api/twilio/token` — browser Voice access token.  `GET /api/twilio/debug` — live legs + captured leads.
 
 All endpoints degrade gracefully when unconfigured (`/api/twilio/config` reports what's live).

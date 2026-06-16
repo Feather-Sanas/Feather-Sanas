@@ -644,6 +644,7 @@ def twilio_debug() -> JSONResponse:
         "sanas_mode": sanas_client.client.mode,
         "bridges": {k: _b(v) for k, v in BRIDGES.items()},
         "streams": {k: {"enabled": v.get("enabled")} for k, v in STREAMS.items()},
+        "leads": LEADS[-20:][::-1],   # guided-demo callback requests, newest first
     })
 
 
