@@ -488,6 +488,9 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .tw-or { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-03); margin-bottom: 6px; }
 .tw-action { flex: 1; min-width: 200px; }
 .tw-browser-extras { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.tw-sample { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.tw-sample-mount:not(:empty), .tw-rec:not(:empty) { margin-top: 10px; }
+.tw-rec-h { font-size: 11px; color: var(--gray-04); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
 .pg-input-btn:disabled { opacity: .45; cursor: default; }
 .tw-toggle-l { font-size: 12px; color: var(--gray-04); }
 .tw-callctl { margin-top: 4px; }

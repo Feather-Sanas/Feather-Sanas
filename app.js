@@ -1211,7 +1211,36 @@ function twilioConnectNode() {
     const btn = el('button', { class: 'pg-input-btn live' }, 'Connect');
     const st = statusLine();
     const toggleMount = el('div', { class: 'tw-toggle-mount' });
-    let device = null, conn = null;
+    let device = null, conn = null, recorder = null, recChunks = [];
+
+    // Sample call audio — the real sanas.ai degraded → clean demo clips, so you can
+    // hear the kind of line Sanas fixes before placing a call (like the Playground).
+    const sampleSel = el('select', { class: 'pg-langsel tw-sample', 'aria-label': 'Sample call audio' },
+      el('option', { value: '' }, 'Hear sample call audio…'),
+      ...Object.entries(SCENARIOS).map(([k, s]) => el('option', { value: k }, s.name)));
+    const sampleMount = el('div', { class: 'tw-sample-mount' });
+    sampleSel.addEventListener('change', () => {
+      sampleMount.innerHTML = '';
+      if (sampleSel.value) sampleMount.appendChild(showroomNode(sampleSel.value));
+    });
+
+    // After a browser call, analyze the recording like an uploaded clip:
+    // before/after through the chosen model, spectrogram, and recognition (WER).
+    const recMount = el('div', { class: 'tw-rec' });
+    async function reviewRecording(blob, model) {
+      recMount.innerHTML = '';
+      const status = el('div', { class: 'pg-status busy' }, `Analyzing your call audio through Sanas ${model}…`);
+      recMount.append(el('div', { class: 'tw-rec-h' }, 'Your call recording'), status);
+      try {
+        const res = await processClip(blob, model);
+        recMount.innerHTML = '';
+        recMount.append(
+          el('div', { class: 'tw-rec-h' }, 'Your call recording — before / after, with spectrogram and recognition'),
+          realShowroomNode(res.origBuf, res.procBuf, res.meta, { before: res.origBytes, after: res.procBytes }));
+      } catch {
+        status.classList.remove('busy'); status.textContent = 'Could not analyze the recording.';
+      }
+    }
 
     function sync() {
       const browser = action.value === 'browser';
@@ -1225,13 +1254,24 @@ function twilioConnectNode() {
 
     async function browserConnect() {
       if (conn) { try { conn.disconnect(); } catch {} return; }   // hang up
+      let recStream;
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-        s.getTracks().forEach(tr => tr.stop());
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (e) {
         st.textContent = 'Microphone blocked — allow mic access for this site and retry. (' + (e.name || e) + ')';
         return;
       }
+      // record your side of the call so it can be reviewed/analyzed afterward
+      recorder = null; recChunks = [];
+      try {
+        recorder = new MediaRecorder(recStream);
+        recorder.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
+        recorder.onstop = () => {
+          recStream.getTracks().forEach(t => t.stop());
+          if (recChunks.length) reviewRecording(new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' }), modelSel.value);
+        };
+        recorder.start();
+      } catch { recStream.getTracks().forEach(t => t.stop()); recorder = null; }
       st.textContent = 'Loading the Voice SDK…';
       try {
         await loadTwilioSDK();
@@ -1262,8 +1302,16 @@ function twilioConnectNode() {
         if (togglePayload) toggleMount.appendChild(callToggle(togglePayload));
         else if (csid) toggleMount.appendChild(callToggle({ call_sid: csid }));
         conn.on('error', (e) => { st.textContent = 'Call error: ' + (e.message || e); });
-        conn.on('disconnect', () => { conn = null; sync(); st.textContent = 'Call ended.'; toggleMount.innerHTML = ''; });
-      } catch (e) { st.textContent = 'Browser call failed: ' + (e.message || e); }
+        conn.on('disconnect', () => {
+          conn = null; sync(); toggleMount.innerHTML = '';
+          const recording = recorder && recorder.state !== 'inactive';
+          st.textContent = recording ? 'Call ended — analyzing your recording…' : 'Call ended.';
+          try { if (recording) recorder.stop(); } catch {}
+        });
+      } catch (e) {
+        st.textContent = 'Browser call failed: ' + (e.message || e);
+        try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch {}
+      }
     }
 
     btn.addEventListener('click', () => {
@@ -1274,7 +1322,9 @@ function twilioConnectNode() {
     body.append(
       el('div', { class: 'tw-row' }, phone),
       el('div', { class: 'tw-row' }, action, btn),
-      modelRow, browserExtras, st, toggleMount);
+      modelRow, browserExtras,
+      el('div', { class: 'tw-row' }, el('span', { class: 'tw-toggle-l' }, 'Sample audio:'), sampleSel),
+      sampleMount, st, toggleMount, recMount);
     sync();
   }
 
