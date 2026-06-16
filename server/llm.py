@@ -7,8 +7,13 @@ a small per-persona block selects register. If ANTHROPIC_API_KEY isn't set, or
 the call fails, chat() returns None and the front-end falls back to its
 deterministic rule-based engine.
 
+Calls use **adaptive thinking** (`thinking: {type: "adaptive"}`) so Claude reasons
+only when a turn warrants it — trivial replies stay fast, hard technical/skeptic
+turns get real reasoning first. Tunable via SAN_LLM_MODEL / SAN_LLM_EFFORT /
+SAN_LLM_THINKING (set to `off` for an older model that 400s on adaptive thinking).
+
 Docs/best-practices: the `claude-api` skill (prompt caching, model IDs, no
-sampling params on 4.x). Model is configurable via SAN_LLM_MODEL.
+sampling params on 4.x).
 """
 from __future__ import annotations
 
@@ -22,7 +27,25 @@ except Exception:
     _SDK = False
 
 MODEL = os.getenv("SAN_LLM_MODEL", "claude-sonnet-4-6")
+# Give the response room: with adaptive thinking on, thinking + answer share the
+# per-response token budget, so 1024 could starve the answer on a reasoning-heavy turn.
+MAX_TOKENS = int(os.getenv("SAN_LLM_MAX_TOKENS", "4096"))
+# Adaptive thinking — Claude decides per-turn whether (and how much) to reason:
+# trivial replies skip it (no added latency); a tricky technical/skeptic question
+# gets real reasoning before the answer. Supported on Sonnet 4.6 / Opus 4.x / Fable.
+# Set SAN_LLM_THINKING=off for an older model that would 400 on it.
+_THINKING_ON = os.getenv("SAN_LLM_THINKING", "adaptive").lower() not in ("off", "0", "disabled", "none", "")
+_EFFORT = os.getenv("SAN_LLM_EFFORT", "medium")  # low | medium | high | max
 _client = None
+
+
+def _model_kwargs() -> dict:
+    """Shared per-request model params. Adaptive thinking + effort when enabled."""
+    kw = {"model": MODEL, "max_tokens": MAX_TOKENS}
+    if _THINKING_ON:
+        kw["thinking"] = {"type": "adaptive"}
+        kw["output_config"] = {"effort": _EFFORT}
+    return kw
 
 
 def available() -> bool:
@@ -138,9 +161,10 @@ def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
         return None
     try:
         resp = client.messages.create(
-            model=MODEL, max_tokens=1024,
+            **_model_kwargs(),
             system=_system_blocks(persona, skeptic, context), messages=messages,
         )
+        # thinking blocks are skipped here — only the final text is returned
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:
         return None
@@ -155,9 +179,11 @@ def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float
         return
     try:
         with client.messages.stream(
-            model=MODEL, max_tokens=1024,
+            **_model_kwargs(),
             system=_system_blocks(persona, skeptic, context), messages=messages,
         ) as stream:
+            # text_stream yields only text deltas — adaptive thinking stays silent,
+            # so the user sees the answer, never the reasoning.
             for text in stream.text_stream:
                 yield text
     except Exception:
