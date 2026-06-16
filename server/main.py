@@ -115,6 +115,8 @@ def _prefer(persona: str | None, query: str = "") -> str | None:
     articles; support/how-to questions get grounded in the help center."""
     if persona == "data_scientist":
         return "/science"
+    if persona == "help":
+        return "help.sanas.ai"
     q = (query or "").lower()
     if any(k in q for k in _SUPPORT_KW):
         return "help.sanas.ai"

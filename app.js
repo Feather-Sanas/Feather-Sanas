@@ -143,11 +143,13 @@ const PERSONAS = {
   buyer_it:   { label: 'IT / Security',em: '■', register: 'architecture, certifications, deployment topology' },
   developer:  { label: 'Developer',    em: '▸', register: 'technical, code snippets, sandbox, latency' },
   data_scientist: { label: 'Data Scientist', em: '◇', register: 'eval methodology, metrics (WER, MOS/PESQ), datasets & benchmarks, ground-truth references, reproducibility' },
+  help: { label: 'Help', em: '✚', register: 'help-desk: step-by-step setup, troubleshooting, links to help.sanas.ai articles' },
 };
 function classifyPersona(text, current) {
   const t = text.toLowerCase();
   if (/\b(telco|telecom|carrier|operator|voip|sip trunk|sip|pstn|codec|jitter|packet ?loss|opus|g\.?711|g\.?729|amr|narrowband|wideband|rtp)\b/.test(t)) return 'buyer_telco';
   if (/\b(dataset|datasets|benchmark|eval|evaluation|ground.?truth|training data|held.?out|precision|recall|f1|confusion matrix|reproduc|distribution|a\/b test|statistical|jupyter|pandas|notebook|model card|mos|pesq|stoi|si.?sdr|spectrogram|mel|mfcc|nyquist|fourier|stft|wav2vec2?|whisper|sampling rate|bit depth|augmentation|diffusion model)\b/.test(t)) return 'data_scientist';
+  if (/\b(install|uninstall|reinstall|set ?up the app|troubleshoot|not working|doesn'?t work|can'?t (hear|connect|log|sign)|password|forgot password|portal|log ?in|sign ?in|microphone|mic|headset|no (sound|audio)|fix audio|audio (issue|problem)|echo|crackl|distort|dialer|zoom|microsoft teams|genesys|avaya|talkdesk|8x8|freshdesk|ticket|support|how do i (install|set ?up|configure|enable|reset|fix|activate))\b/.test(t)) return 'help';
   if (/\b(api|sdk|curl|endpoint|latency|sandbox|integrat|code|python|node|deepgram|elevenlabs|krisp|wer)\b/.test(t)) return 'developer';
   if (/\b(iso|soc 2|soc2|gdpr|compliance|security|residency|on-?prem|architecture|certif|data)\b/.test(t)) return 'buyer_it';
   if (/\b(csat|aht|fcr|roi|seats|agents|bpo|call center|cost|savings|demo|pilot)\b/.test(t)) return 'buyer_cx';
@@ -1799,6 +1801,7 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_telco: "Understood — I'll talk carrier-grade. We run in-path on the media stream, narrowband or wideband, and lift perceived voice quality (MOS/PESQ) without adding meaningful latency. Are you looking at the access side, an SBC/SIP-trunk deployment, or call-center termination?",
       buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
       data_scientist: "Great — I'll talk shop. Sanas reconstructs the signal with a dual-decoder generative model rather than filtering it; we score WER for intelligibility and MOS/PESQ for perceived quality against clean references on held-out sets. The Sanas science write-ups (sanas.ai/science) cover the architecture, VAD, ASR-optimized NC, and 8→16 kHz upscaling. Want the eval methodology, the model architecture, or the science articles?",
+      help: "Happy to help — I'll pull the right article from the Sanas help center. What do you need: installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio or microphone issue, or portal/account access?",
       curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
     }[p];
     if (intro) addMessage('san', intro);
@@ -1808,6 +1811,7 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_telco: ['How does it run in-path?', 'MOS lift over G.711', 'Latency budget per leg'],
       buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
       data_scientist: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'],
+      help: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'],
       curious: ['What does Sanas do?', 'Play a before/after'],
     }[p];
     if (sg) setSuggestions(sg);
