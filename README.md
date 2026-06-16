@@ -17,6 +17,17 @@ Sanas SDK integration** for live audio processing on uploaded clips.
 > (real secrets stay in the gitignored `server/.env`). Override a false positive with
 > `git commit --no-verify`.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Landing — the sanas.ai-styled marketing surface Sani lives on](docs/examples/01-landing.png) | ![Sani consultant — persona dropdown, typed opening, suggestions](docs/examples/02-consultant-chat.png) |
+| **Landing** — the brand-accurate marketing surface | **Sani** — persona dropdown, typed opening, suggestions |
+| ![Playground — capability and model dropdowns, record/upload, test-all](docs/examples/03-playground.png) | ![Connect by voice — one number field, action dropdown, model picker](docs/examples/04-connect-by-voice.png) |
+| **Playground** — capability + model dropdowns, record/upload, test-all | **Connect by voice** — one field, action dropdown, model picker |
+
+> Tip: deep-link straight to a view with `?open=chat`, `?open=playground`, or `?open=connect`.
+
 ## Two ways to run
 
 ### A. Front-end only (curated demos, no SDK)
