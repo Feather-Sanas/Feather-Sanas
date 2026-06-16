@@ -1,11 +1,38 @@
+# Single-host deploy: uvicorn (the Sani backend) behind Caddy for automatic HTTPS.
+# Caddy terminates TLS and reverse-proxies to the backend over the internal network,
+# transparently upgrading WebSockets (live mic + Twilio media streams) with no idle
+# timeout. Run with:  SITE_ADDRESS=sani.example.com docker compose up -d --build
 services:
   san:
     build:
       context: .
       dockerfile: server/Dockerfile
     platform: linux/amd64        # Sanas SDK is x86-64; emulated on Apple Silicon
-    ports:
-      - "8000:8000"
     env_file:
-      - server/.env              # your SANAS_* credentials (copied from .env.example)
+      - server/.env              # SANAS_*/ANTHROPIC_*/TWILIO_* + PUBLIC_BASE_URL
+    expose:
+      - "8000"                   # internal only — Caddy reaches it as http://san:8000
+    ports:
+      - "127.0.0.1:8000:8000"    # loopback only, for on-box curl/debug (not public)
     restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Your domain for auto-HTTPS (e.g. sani.example.com). Defaults to ":80"
+      # (plain HTTP) so it still comes up without a domain while you test.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data         # persists Let's Encrypt certs across restarts
+      - caddy_config:/config
+    depends_on:
+      - san
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,11 @@
+# SITE_ADDRESS comes from the environment (docker-compose passes it in):
+#   - a domain  (e.g. sani.example.com) → Caddy provisions a Let's Encrypt cert
+#   - ":80"     → plain HTTP, for testing before you have a domain
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# Reverse-proxy everything to the backend. Caddy upgrades WebSocket
+	# connections automatically (live mic /api/stream + Twilio media/bridge),
+	# and does not impose an idle timeout, so long-lived streams stay open.
+	reverse_proxy san:8000
+}

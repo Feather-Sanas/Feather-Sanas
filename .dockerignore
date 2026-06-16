@@ -1,0 +1,25 @@
+# Build-context excludes: keep secrets, venvs, and dev-only files out of the image.
+# IMPORTANT: do NOT ignore server/vendor/ — the Dockerfile installs the Sanas SDK
+# tarball from there.
+
+.git
+.githooks
+**/.env
+*.log
+**/__pycache__/
+**/*.pyc
+
+# virtualenvs (large, host-specific)
+.venv*/
+server/.venv*/
+
+# node + eval tooling (not needed at runtime)
+node_modules/
+evals/
+
+# dev/maintenance scripts not used by the running container
+scripts/
+
+# docs
+*.md
+ARCHITECTURE.md

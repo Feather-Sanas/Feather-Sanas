@@ -31,8 +31,11 @@ RUN set -e; \
         echo "No SDK tarball in server/vendor/ — running in MOCK mode."; \
     fi
 
-# Backend source (kept OUT of the web root so it isn't served over HTTP)
-COPY server/main.py server/sanas_client.py ./
+# Backend source (kept OUT of the web root so it isn't served over HTTP).
+# All runtime modules + the prebuilt sanas.ai index must be present, or the app
+# crashes on import (main.py pulls in llm/asr/webindex/twilio_routes).
+COPY server/main.py server/sanas_client.py server/llm.py server/asr.py \
+     server/webindex.py server/twilio_routes.py server/web_index.json ./
 
 # Front-end into a dedicated, publicly-served directory
 COPY index.html styles.css app.js /app/web/
