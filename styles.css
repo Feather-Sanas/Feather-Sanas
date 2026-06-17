@@ -517,6 +517,15 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
   border-radius: 999px; padding: 8px 16px; background: var(--gray-02); color: var(--gray-04);
 }
 .live-toggle.on { background: linear-gradient(90deg, var(--sanas-green), var(--sanas-green-deep)); color: #06281c; }
+/* browser-call controls: Call / Hang-up + timer, Model on / Model off */
+.tw-callrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tw-call { min-width: 96px; }
+.tw-hang { background: var(--gray-01); color: var(--sanas-black); border: 1px solid var(--gray-02); min-width: 96px; }
+.tw-timer { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 16px; color: var(--gray-04); margin-left: auto; letter-spacing: .04em; }
+.tw-call.in-call ~ .tw-timer, .tw-callrow .tw-timer { color: var(--sanas-green-deep); }
+.tw-livectrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tw-modeloff.on { background: var(--sanas-black); color: #fff; }
+.live-toggle:disabled { opacity: .45; cursor: default; }
 .live-meters { display: flex; flex-direction: column; gap: 6px; }
 .live-meter { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: center; }
 .live-meter .lm-l { font-size: 11px; color: var(--gray-04); }
