@@ -144,17 +144,28 @@ const PERSONAS = {
   developer:  { label: 'Developer',    em: '▸', register: 'technical, code snippets, sandbox, latency' },
   data_scientist: { label: 'Data Scientist', em: '◇', register: 'eval methodology, metrics (WER, MOS/PESQ), datasets & benchmarks, ground-truth references, reproducibility' },
   help: { label: 'Help', em: '✚', register: 'help-desk: step-by-step setup, troubleshooting, links to help.sanas.ai articles' },
+  partner: { label: 'Partner', em: '⬡', register: 'channel & partnerships: reseller / ISV / referral / SI programs, integration, co-sell, margins' },
 };
 function classifyPersona(text, current) {
   const t = text.toLowerCase();
   if (/\b(telco|telecom|carrier|operator|voip|sip trunk|sip|pstn|codec|jitter|packet ?loss|opus|g\.?711|g\.?729|amr|narrowband|wideband|rtp)\b/.test(t)) return 'buyer_telco';
   if (/\b(dataset|datasets|benchmark|eval|evaluation|ground.?truth|training data|held.?out|precision|recall|f1|confusion matrix|reproduc|distribution|a\/b test|statistical|jupyter|pandas|notebook|model card|mos|pesq|stoi|si.?sdr|spectrogram|mel|mfcc|nyquist|fourier|stft|wav2vec2?|whisper|sampling rate|bit depth|augmentation|diffusion model)\b/.test(t)) return 'data_scientist';
   if (/\b(install|uninstall|reinstall|set ?up the app|troubleshoot|not working|doesn'?t work|can'?t (hear|connect|log|sign)|password|forgot password|portal|log ?in|sign ?in|microphone|mic|headset|no (sound|audio)|fix audio|audio (issue|problem)|echo|crackl|distort|dialer|zoom|microsoft teams|genesys|avaya|talkdesk|8x8|freshdesk|ticket|support|how do i (install|set ?up|configure|enable|reset|fix|activate))\b/.test(t)) return 'help';
+  if (/\b(partner|partnership|reseller|channel partner|co-?sell|distributor|\bvar\b|\bisv\b|\bmsp\b|system integrator|become a partner|partner with|referral program)\b/.test(t)) return 'partner';
   if (/\b(api|sdk|curl|endpoint|latency|sandbox|integrat|code|python|node|deepgram|elevenlabs|krisp|wer)\b/.test(t)) return 'developer';
   if (/\b(iso|soc 2|soc2|gdpr|compliance|security|residency|on-?prem|architecture|certif|data)\b/.test(t)) return 'buyer_it';
   if (/\b(csat|aht|fcr|roi|seats|agents|bpo|call center|cost|savings|demo|pilot)\b/.test(t)) return 'buyer_cx';
   return current || 'curious';
 }
+// Industries Sanas publishes (sanas.ai) + Telecom. Selecting one tells Sani the
+// vertical so it frames examples/ROI and grounds answers in that industry's page.
+const INDUSTRIES = {
+  healthcare:           { label: 'Healthcare',            url: 'https://www.sanas.ai/healthcare' },
+  'financial-services': { label: 'Financial Services',    url: 'https://www.sanas.ai/financial-services' },
+  retail:               { label: 'Retail',                url: 'https://www.sanas.ai/retail' },
+  travel:               { label: 'Travel & Hospitality',  url: 'https://www.sanas.ai/travel' },
+  telecom:              { label: 'Telecom',               url: null },   // no dedicated page; framed via telephony/NC
+};
 function skepticScore(text) {
   const t = text.toLowerCase();
   let s = 0;
@@ -218,7 +229,7 @@ async function llmChat(history, persona, skeptic) {
   try {
     const r = await fetch(SAN_API + '/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: msgs.slice(-12), persona, skeptic }),
+      body: JSON.stringify({ messages: msgs.slice(-12), persona, skeptic, industry: state.industry }),
     });
     if (!r.ok) return null;
     const data = await r.json();
@@ -236,7 +247,7 @@ async function llmChatStream(history, persona, skeptic, onDelta) {
   try {
     const r = await fetch(SAN_API + '/api/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: msgs.slice(-12), persona, skeptic }),
+      body: JSON.stringify({ messages: msgs.slice(-12), persona, skeptic, industry: state.industry }),
     });
     let sources = [];
     try { sources = JSON.parse(r.headers.get('X-San-Sources') || '[]'); } catch {}
@@ -570,6 +581,7 @@ const state = {
   sessionId: uuid(),
   persona: null,        // null until detected/selected
   personaExplicit: false,
+  industry: null,       // vertical selected in the industry dropdown (null = unset)
   skeptic: 0,
   turn: 0,
   history: [],          // session-scoped memory (F9)
@@ -647,6 +659,8 @@ const OPENINGS = {
     suggestions: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'] },
   help: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. I can pull the right article from the Sanas help center. What do you need — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access?",
     suggestions: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'] },
+  partner: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Looking to partner with Sanas? We run reseller, technology/ISV, referral, and SI programs. Tell me your model and I'll point you to the right program — and you can apply right here.",
+    suggestions: ['Apply to partner', 'Partner program types', 'How does co-sell work?', 'Integration / API'] },
 };
 function opening(persona) {
   return OPENINGS[persona] || OPENINGS.curious;
@@ -1815,6 +1829,10 @@ function setSuggestions(items) {
   });
 }
 
+function roleLine() {
+  const base = 'Speech AI specialist · ' + (PERSONAS[state.persona]?.label || 'concierge');
+  return state.industry && INDUSTRIES[state.industry] ? base + ' · ' + INDUSTRIES[state.industry].label : base;
+}
 function setPersona(p, explicit) {
   if (!p) return;
   const changed = state.persona !== p;
@@ -1822,9 +1840,16 @@ function setPersona(p, explicit) {
   // reflect in the persona dropdown
   const sel = $('#personaSelect');
   if (sel && sel.value !== p) sel.value = p;
-  // reflect register in header
-  $('#sanRole').textContent = 'Speech AI specialist · ' + (PERSONAS[p]?.label || 'concierge');
+  // reflect register (+ industry) in header
+  $('#sanRole').textContent = roleLine();
   if (changed) emit({ event: 'persona_set', persona_detected: p, explicit: !!explicit, sub_persona: p });
+}
+function setIndustry(key) {
+  state.industry = key || null;
+  const sel = $('#industrySelect');
+  if (sel && sel.value !== (key || '')) sel.value = key || '';
+  $('#sanRole').textContent = roleLine();
+  emit({ event: 'industry_set', industry: state.industry });
 }
 
 /* ---------- main input handler ---------- */
@@ -2060,6 +2085,60 @@ function openBookDemo() {
   }, 250);
 }
 
+/* ---------- Partner application (mirrors sanas.ai/partner-form) ---------- */
+function partnerFormNode() {
+  const f = {};
+  const field = (key, label, attrs = {}) => {
+    const input = el('input', Object.assign({ type: 'text' }, attrs));
+    f[key] = input;
+    return el('label', { class: 'roi-field' }, el('span', {}, label), input);
+  };
+  const typeSel = el('select', { class: 'demo-select' },
+    ...['Partnership type', 'Reseller', 'Technology / ISV', 'Referral', 'System Integrator', 'Other'].map((o, i) => el('option', { value: i ? o : '' }, o)));
+  f.partnership_type = typeSel;
+  const msg = el('textarea', { class: 'demo-msg', rows: '2', placeholder: 'Tell us about the opportunity (optional)' });
+  const out = el('div', {});
+  const go = el('button', { class: 'roi-go' }, 'Apply to partner');
+  go.addEventListener('click', async () => {
+    const email = (f.email.value || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      out.replaceChildren(el('div', { class: 'demo-err' }, 'Please enter a valid work email.')); return;
+    }
+    go.disabled = true; go.textContent = 'Sending…';
+    const payload = {
+      first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email,
+      company: f.company.value.trim(), partnership_type: typeSel.value,
+      region: f.region.value.trim(), website: f.website.value.trim(), message: msg.value.trim(),
+    };
+    try {
+      const r = await fetch(SAN_API + '/api/partner/apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+      const note = d.email_configured
+        ? "We've sent your application to our partnerships team and emailed you a confirmation."
+        : "We've logged your application and our partnerships team will follow up.";
+      out.replaceChildren(
+        el('div', { class: 'demo-ok' }, `Thanks${payload.first_name ? ', ' + payload.first_name : ''}. ${note}`),
+        el('a', { class: 'demo-cal-link', href: 'https://www.sanas.ai/partners', target: '_blank', rel: 'noopener' }, 'Read about the Sanas partner programs →'));
+      emit({ event: 'partner_applied', email_configured: !!d.email_configured, recommendation_made: true });
+    } catch (err) {
+      go.disabled = false; go.textContent = 'Apply to partner';
+      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again, or use Speak live to reach us directly."));
+      emit({ event: 'partner_error', error: String(err) });
+    }
+  });
+  return el('div', { class: 'demo-form rich' },
+    el('div', { class: 'demo-row' }, field('first_name', 'First name'), field('last_name', 'Last name')),
+    field('email', 'Work email', { type: 'email', placeholder: 'you@company.com' }),
+    el('div', { class: 'demo-row' }, field('company', 'Company'),
+      el('label', { class: 'roi-field' }, el('span', {}, 'Partnership type'), typeSel)),
+    el('div', { class: 'demo-row' }, field('region', 'Region / country'), field('website', 'Website', { type: 'url', placeholder: 'company.com' })),
+    el('label', { class: 'roi-field' }, el('span', {}, 'About the opportunity'), msg),
+    el('div', { class: 'demo-disc' }, 'Goes to the Sanas partnerships team — see the programs at sanas.ai/partners.'),
+    go, out);
+}
+
 /* ---------- debug / observability drawer (F11) ---------- */
 function renderDebug() {
   const d = $('#debugBody'); if (!d) return;
@@ -2151,9 +2230,11 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
       data_scientist: "Great — I'll talk shop. Sanas reconstructs the signal with a dual-decoder generative model rather than filtering it; we score WER for intelligibility and MOS/PESQ for perceived quality against clean references on held-out sets. The Sanas science write-ups (sanas.ai/science) cover the architecture, VAD, ASR-optimized NC, and 8→16 kHz upscaling. Want the eval methodology, the model architecture, or the science articles?",
       help: "Happy to help — I'll pull the right article from the Sanas help center. What do you need: installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio or microphone issue, or portal/account access?",
+      partner: "Great — let's talk partnership. Sanas runs reseller, technology/ISV, referral, and system-integrator programs ([partners](https://www.sanas.ai/partners)). Tell me how you'd work with us, or apply right here and our partnerships team follows up.",
       curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
     }[p];
-    if (intro) addMessage('san', intro);
+    // Partner shows the partner-application form inline (mirrors sanas.ai/partner-form)
+    if (intro) addMessage('san', intro, p === 'partner' ? { nodes: [partnerFormNode()] } : {});
     const sg = {
       developer: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process'],
       buyer_cx: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after'],
@@ -2161,9 +2242,27 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
       data_scientist: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'],
       help: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'],
+      partner: ['Partner program types', 'How does co-sell work?', 'Integration / API'],
       curious: ['What does Sanas do?', 'Play a before/after'],
     }[p];
     if (sg) setSuggestions(sg);
+  });
+
+  // industry dropdown — sets the vertical; Sani frames examples + grounds retrieval there
+  const industrySel = $('#industrySelect');
+  if (industrySel) industrySel.addEventListener('change', () => {
+    const key = industrySel.value;
+    setIndustry(key);
+    if (!key) return;
+    const ind = INDUSTRIES[key];
+    const line = {
+      healthcare: `Healthcare it is. Sanas keeps patient and member calls clear and intelligible while preserving the agent's identity — see [Speech AI for Healthcare](${ind.url}). What's the setting — payer, provider, or pharmacy support?`,
+      'financial-services': `Financial services — clarity and trust on every call, with compliance-grade deployment. See [Speech AI for Financial Services](${ind.url}). Collections, servicing, or fraud/verification lines?`,
+      retail: `Retail and e-commerce — clearer support through peak seasons and offshore teams. See [Speech AI for Retail](${ind.url}). Order support, returns, or loyalty?`,
+      travel: `Travel & hospitality — accent clarity across global guests and 24/7 lines. See [Speech AI for Travel & Hospitality](${ind.url}). Reservations, disruptions, or loyalty desks?`,
+      telecom: `Telecom — clearer in-network voice lowers churn and lifts ARPU, and on the support side cuts AHT. Want the churn + ARPU ROI, or how Sanas runs in-path on the media stream?`,
+    }[key];
+    if (line) addMessage('san', line);
   });
 
   // composer

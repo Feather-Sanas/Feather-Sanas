@@ -88,7 +88,7 @@ ASCII fallback:
 | Component | File | Responsibility |
 |---|---|---|
 | **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sani chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
-| **Front-end app** | `app.js` | Rule engine (retrieval, **7-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security, skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
+| **Front-end app** | `app.js` | Rule engine (retrieval, **8-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security / **Partner** — plus an **industry** dropdown (Healthcare / Financial Services / Retail / Travel / **Telecom**), skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
 | **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). Mock fallback when the SDK/creds are absent. |
 | **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Formats retrieved context as either sanas.ai pages (inline-linked) or **uploaded documents** (cited by filename). Returns `None` to signal the client to fall back to the rule engine. |
@@ -115,6 +115,7 @@ ASCII fallback:
 | `POST` | `/api/rag/clear` | Wipe the document store. |
 | `POST` | `/api/demo/book` | **Book a demo / More information.** Capture the lead → email it to `DEMO_NOTIFY_EMAIL` + a confirmation (with the booking link) to the contact via SMTP → return `BOOKING_URL`. |
 | `GET` | `/api/demo/config` | Booking URL, resolved embeddable `embed_url` (the scheduler is shown inline in an iframe), and whether SMTP is configured. |
+| `POST` | `/api/partner/apply` | **Partner application** (mirrors sanas.ai/partner-form): capture → email to the partnerships owner + confirmation to the applicant (SMTP, graceful no-op). |
 | `WS` | `/api/stream` | **Live mic.** Bidirectional int16 PCM frames through a persistent processor; JSON control (`model`, `enabled`); bypass echoes input. |
 | `GET` | `/` , `/{index.html,app.js,styles.css}` | Serve the front-end (no-cache; all-list only). |
 

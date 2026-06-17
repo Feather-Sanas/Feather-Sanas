@@ -126,19 +126,31 @@ def _prefer(persona: str | None, query: str = "") -> str | None:
         return "/science"
     if persona == "help":
         return "help.sanas.ai"
+    if persona == "partner":
+        return "/partners"
     q = (query or "").lower()
     if any(k in q for k in _SUPPORT_KW):
         return "help.sanas.ai"
     return None
 
 
-def _retrieve(persona: str | None, q: str, k: int = 3) -> list[dict]:
+def _retrieve(persona: str | None, q: str, industry: str | None = None, k: int = 3) -> list[dict]:
     """Ground a chat turn in BOTH corpora: the user's uploaded documents (RAG)
     and the crawled sanas.ai site. Uploaded-doc hits lead — they're the user's
-    own material — then site pages fill the rest. Each item keeps a 'kind'
+    own material — then site pages fill the rest. A selected industry biases the
+    site retrieval toward that vertical's page. Each item keeps a 'kind'
     ('doc' | 'web') so the LLM and UI can label the source correctly."""
+    ind_pref = _INDUSTRY_PREFER.get(industry)
+    prefer = ind_pref or _prefer(persona, q)
     docs = doc_index.search(q, k=2) if doc_index.count() else []
-    web = webindex.search(q, k=k, prefer=_prefer(persona, q))
+    web = webindex.search(q, k=k, prefer=prefer)
+    # If an industry with a dedicated page is selected, guarantee that page is in
+    # context (term-matching alone may miss it) so answers ground in the vertical.
+    if ind_pref and not any(ind_pref in w["url"] for w in web):
+        page = webindex.by_url(ind_pref)
+        if page:
+            page["kind"] = "web"
+            web = [page] + web[:max(0, k - 1)]
     for w in web:
         w.setdefault("kind", "web")
     return (docs + web)[:k + len(docs)]
@@ -153,6 +165,19 @@ class ChatReq(BaseModel):
     messages: list[ChatTurn]
     persona: str | None = None
     skeptic: float = 0.0
+    industry: str | None = None
+
+
+# Industry verticals Sanas publishes (+ Telecom). The value biases retrieval toward
+# that industry's sanas.ai page; the label is passed to the LLM as vertical context.
+_INDUSTRY_PREFER = {
+    "healthcare": "/healthcare", "financial-services": "/financial-services",
+    "retail": "/retail", "travel": "/travel", "telecom": None,
+}
+_INDUSTRY_LABEL = {
+    "healthcare": "Healthcare", "financial-services": "Financial Services",
+    "retail": "Retail", "travel": "Travel & Hospitality", "telecom": "Telecom",
+}
 
 
 @app.post("/api/chat")
@@ -166,8 +191,9 @@ def chat(req: ChatReq) -> JSONResponse:
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
     _q = _last_user(msgs)
-    sources = _retrieve(req.persona, _q)
-    text = llm.chat(msgs, req.persona, req.skeptic, context=sources)
+    sources = _retrieve(req.persona, _q, req.industry)
+    text = llm.chat(msgs, req.persona, req.skeptic, context=sources,
+                    industry=_INDUSTRY_LABEL.get(req.industry))
     return JSONResponse({
         "text": text,
         "mode": "llm" if text else "fallback",
@@ -188,7 +214,7 @@ def chat_stream(req: ChatReq):
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
     _q = _last_user(msgs)
-    sources = _retrieve(req.persona, _q)
+    sources = _retrieve(req.persona, _q, req.industry)
     src_hdr = json.dumps([{"title": s["title"], "url": s["url"], "kind": s.get("kind", "web")}
                           for s in sources])  # ASCII, one line
     if not llm.available():
@@ -196,8 +222,10 @@ def chat_stream(req: ChatReq):
                         headers={"X-San-Mode": "fallback", "X-San-Sources": src_hdr,
                                  "Access-Control-Expose-Headers": "*"})
 
+    _industry = _INDUSTRY_LABEL.get(req.industry)
+
     def gen():
-        for delta in llm.chat_stream(msgs, req.persona, req.skeptic, context=sources):
+        for delta in llm.chat_stream(msgs, req.persona, req.skeptic, context=sources, industry=_industry):
             yield delta
 
     return StreamingResponse(gen(), media_type="text/plain; charset=utf-8",
@@ -479,6 +507,53 @@ def demo_book(req: DemoRequest) -> JSONResponse:
         "email_configured": mailer.available(),
         "emailed": {"notify": notify_ok, "contact": contact_ok},
     })
+
+
+PARTNERS_URL = "https://www.sanas.ai/partners"
+PARTNER_LEADS: list[dict] = []
+
+
+class PartnerRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    company: str = ""
+    partnership_type: str = ""
+    region: str = ""
+    website: str = ""
+    message: str = ""
+
+
+@app.post("/api/partner/apply")
+def partner_apply(req: PartnerRequest) -> JSONResponse:
+    """Partner application (mirrors sanas.ai/partner-form): capture + email to the
+    partnerships owner + confirm to the applicant. Degrades to logged when SMTP unset."""
+    email = (req.email or "").strip()
+    name = " ".join(p for p in [req.first_name.strip(), req.last_name.strip()] if p) or "(no name)"
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="A valid work email is required.")
+    ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    fields = [("Name", name), ("Work email", email), ("Company", req.company),
+              ("Partnership type", req.partnership_type), ("Region", req.region),
+              ("Website", req.website), ("About", req.message)]
+    detail = "\n".join(f"{k}: {v}" for k, v in fields if v)
+    PARTNER_LEADS.append({k.lower().replace(" ", "_"): v for k, v in fields} | {"received": ts})
+    print(f"[partner] application from {name} <{email}> ({req.company or 'n/a'}, {req.partnership_type or 'n/a'})", flush=True)
+
+    notify_ok, notify_err = mailer.send(
+        DEMO_NOTIFY_EMAIL, f"New partner application — {name}" + (f", {req.company}" if req.company else ""),
+        f"New partner application from Sani.\n\n{detail}\n\nReceived: {ts}\nPrograms: {PARTNERS_URL}\n",
+        reply_to=email)
+    first = req.first_name.strip() or "there"
+    contact_ok, _ = mailer.send(
+        email, "Thanks for your interest in the Sanas Partner Program",
+        f"Hi {first},\n\nThanks for your interest in partnering with Sanas. Our partnerships team has your "
+        f"details and will be in touch. More on the programs: {PARTNERS_URL}\n\nWe've logged:\n{detail}\n\n— The Sanas team\n")
+    if notify_err:
+        print(f"[partner] notify email not sent: {notify_err}", flush=True)
+    return JSONResponse({"ok": True, "partners_url": PARTNERS_URL,
+                         "email_configured": mailer.available(),
+                         "emailed": {"notify": notify_ok, "contact": contact_ok}})
 
 
 @app.post("/api/asr")

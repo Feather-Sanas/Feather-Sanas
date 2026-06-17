@@ -53,6 +53,16 @@ def _snippet(page: dict, terms: list[str]) -> str:
     return ("…" if start else "") + x[start:start + 200].strip() + "…"
 
 
+def by_url(substr: str) -> dict | None:
+    """Return the first indexed page whose URL contains `substr` (title/url/snippet),
+    regardless of query terms — used to guarantee an industry page is grounded when
+    that vertical is selected."""
+    for p in _load():
+        if substr and substr in p["url"]:
+            return {"title": p["title"], "url": p["url"], "snippet": p["text"][:200].strip()}
+    return None
+
+
 def search(query: str, k: int = 3, prefer: str | None = None) -> list[dict]:
     """Lexical top-k over the index. `prefer` (a URL substring, e.g. "/science")
     boosts matching pages so a given section surfaces for the right persona —

@@ -158,14 +158,20 @@ PERSONA_BLOCKS = {
         "and route anything beyond them to the research team."
     ),
     "help": "Current user: needs product support. Answer like a help desk: concise, numbered step-by-step instructions grounded in the help.sanas.ai articles in the context below, and name/link the single most relevant article. Cover install, dialer/softphone setup (Zoom, Genesys, Avaya, Teams, Talkdesk, 8x8), audio/mic troubleshooting, and portal/account tasks. If the answer isn't in the help docs or is account-specific, tell them to submit a ticket via the Sanas portal / Freshdesk rather than guessing.",
+    "partner": "Current user: a prospective or existing partner. Use a channel/partnerships register: reseller, technology / ISV, referral, and system-integrator (SI) programs, integration and co-sell motions, and where Sanas fits in their stack/offering. Ground partnership claims in the Sanas partners page (sanas.ai/partners) in the retrieved context, link to it, and route program specifics (margins, MDF, contracts) to the partnerships team rather than inventing terms. Invite them to apply via the in-chat partner form when it fits.",
     "curious": "Current user: a general visitor. Use plain language, define terms on first use, and lean on a quick before/after demo to make it tangible. Soft CTA only.",
 }
 
 
-def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | None = None) -> list[dict]:
+def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | None = None,
+                   industry: str | None = None) -> list[dict]:
     persona_block = PERSONA_BLOCKS.get(persona or "curious", PERSONA_BLOCKS["curious"])
     if skeptic >= 0.5:
         persona_block += " The user is signalling skepticism — lead with the most convincing concrete evidence (a before/after or a specific number), then the science."
+    if industry:
+        persona_block += (f" The user's industry is {industry} — frame examples, use cases, and ROI "
+                          f"for that vertical, and prefer the matching sanas.ai industry page in the "
+                          f"retrieved context. Don't invent vertical-specific stats you can't ground.")
     blocks = [
         {"type": "text", "text": SHARED_SYSTEM, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": persona_block},
@@ -199,14 +205,14 @@ def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | No
 
 
 def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
-         context: list[dict] | None = None) -> str | None:
+         context: list[dict] | None = None, industry: str | None = None) -> str | None:
     """Return Sani's reply text, or None to signal the client to use its fallback."""
     client = _get_client()
     if client is None:
         return None
     try:
         resp = _create(client,
-            system=_system_blocks(persona, skeptic, context), messages=messages)
+            system=_system_blocks(persona, skeptic, context, industry), messages=messages)
         # thinking blocks are skipped here — only the final text is returned
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:
@@ -214,7 +220,7 @@ def chat(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
 
 
 def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float = 0.0,
-                context: list[dict] | None = None):
+                context: list[dict] | None = None, industry: str | None = None):
     """Yield Sani's reply as text deltas (token-by-token). Yields nothing if the
     client/LLM is unavailable, signalling the caller to fall back."""
     client = _get_client()
@@ -222,7 +228,7 @@ def chat_stream(messages: list[dict], persona: str | None = None, skeptic: float
         return
     try:
         with _open_stream(client,
-            system=_system_blocks(persona, skeptic, context), messages=messages,
+            system=_system_blocks(persona, skeptic, context, industry), messages=messages,
         ) as stream:
             # text_stream yields only text deltas — adaptive thinking stays silent,
             # so the user sees the answer, never the reasoning.

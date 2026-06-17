@@ -232,6 +232,13 @@ live*) runs a booking flow that mirrors [sanas.ai/book-demo](https://www.sanas.a
 
 `GET /api/demo/config` reports the booking URL, the resolved `embed_url`, and whether SMTP
 is configured.
+
+The **Partner** persona shows the same kind of intake (`partnerFormNode` → `POST
+/api/partner/apply`, mirroring [sanas.ai/partner-form](https://www.sanas.ai/partner-form)):
+reseller / technology-ISV / referral / SI type, region, website, opportunity — emailed to
+the partnerships owner with a confirmation to the applicant (same SMTP, same graceful
+no-op). Selecting an **industry** (`industry` on `/api/chat`) biases retrieval to that
+vertical's page and tells Claude the vertical so examples and ROI are framed for it.
 For Gmail SMTP use an **App Password** (not the account password); see `server/.env.example`.
 
 ## Telephony (Twilio) — talk to a human / in-path bridge
@@ -303,7 +310,7 @@ no engine or prompt change ships if a golden eval fails.
 | Spec | Implemented |
 |------|-------------|
 | F1 Grounded Q&A + sources | Lexical retrieval over the ~220-page sanas.ai index **and uploaded documents (RAG)**; every answer shows source chips (site links + "from your documents") |
-| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown: Just looking / Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in and linking to help.sanas.ai**) |
+| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown (default **Just looking**): Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security / **Partner**. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in help.sanas.ai**; **Partner → reseller/ISV/referral/SI programs grounded in [/partners](https://www.sanas.ai/partners), with an in-chat partner-application form**). A second **industry** dropdown (Healthcare / Financial Services / Retail / Travel & Hospitality / **Telecom**) sets the vertical — Sani frames examples/ROI for it and grounds answers in that industry's sanas.ai page |
 | §3.4 Skeptic stance | Orthogonal per-turn score; triggers "showroom-first" behavior on any persona |
 | F3 Speech Science Educator | Acoustic Reconstruction + Dual-Decoder explanations, calibrated |
 | F4 Recommendation engine | Decision tree → product cards w/ rationale; handles compound challenges |
