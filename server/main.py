@@ -75,6 +75,11 @@ def _startup() -> None:
     # Connect to the SIP endpoint off the startup path so the server binds and
     # serves immediately; health reports mode='mock' until the connection is up.
     threading.Thread(target=client.initialize, daemon=True).start()
+    # Pre-warm the Whisper model so the first in-call "done" transcription is fast
+    # (cold load is ~5s — too slow to catch a spoken command on a live call).
+    if asr.available():
+        threading.Thread(target=lambda: asr.transcribe(np.zeros(8000, dtype=np.int16), 8000),
+                         daemon=True).start()
 
 
 @app.on_event("shutdown")

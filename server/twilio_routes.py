@@ -493,10 +493,12 @@ async def twilio_demo_capture(ws: WebSocket):
     loop = asyncio.get_running_loop()
     call_sid = None
     pcm: list = []                 # int16 @ 8k
-    asr_buf: list = []
-    busy = {"v": False}; done = {"v": False}
+    busy = {"v": False}; end = {"reason": None}
     frames = spoke = silence = 0
-    MAX, SILENCE_HOLD, CMD_EVERY = 1600, 140, 150   # ~32s cap, ~2.8s trailing silence, ~3s ASR window
+    MAX, SILENCE_HOLD, CMD_EVERY = 1600, 140, 110   # ~32s cap, ~2.8s trailing silence, ~2.2s ASR cadence
+    END_WORDS = ("done", "i'm done", "im done", "that's it", "thats it", "that is it",
+                 "that's all", "thats all", "finished", "i'm finished", "go ahead",
+                 "ready", "stop", "okay done", "ok done", "next")
 
     async def check_done(samples):
         if busy["v"] or not (asr and asr.available()):
@@ -504,14 +506,17 @@ async def twilio_demo_capture(ws: WebSocket):
         busy["v"] = True
         try:
             res = await loop.run_in_executor(None, asr.transcribe, samples, TW_SR)
-            txt = ((res or {}).get("text") or "").lower()
-            if any(w in txt for w in ("done", "that's it", "thats it", "finished", "i'm done", "im done", "go ahead", "that is it")):
-                done["v"] = True
-        except Exception:
-            pass
+            txt = ((res or {}).get("text") or "").strip().lower()
+            if txt:
+                print(f"[demo-capture] heard: {txt!r}", flush=True)
+            if any(w in txt for w in END_WORDS):
+                end["reason"] = "spoken"
+        except Exception as e:
+            print(f"[demo-capture] asr error: {e}", flush=True)
         finally:
             busy["v"] = False
 
+    print(f"[demo-capture] connected (asr={'on' if (asr and asr.available()) else 'off'})", flush=True)
     try:
         while True:
             msg = json.loads(await ws.receive_text())
@@ -520,7 +525,7 @@ async def twilio_demo_capture(ws: WebSocket):
                 call_sid = msg["start"].get("callSid") or msg["start"]["streamSid"]
             elif ev == "dtmf":
                 if (msg.get("dtmf") or {}).get("digit") in ("#", "1", "0"):
-                    done["v"] = True
+                    end["reason"] = "keypad"
             elif ev == "media":
                 if not _AUDIOOP:
                     continue
@@ -528,27 +533,31 @@ async def twilio_demo_capture(ws: WebSocket):
                 pcm.append(ints)
                 frames += 1
                 amp = int(np.abs(ints.astype(np.int32)).mean()) if ints.size else 0
-                if amp > 400:
+                if amp > 350:
                     spoke += 1; silence = 0
                 elif spoke > 25:
                     silence += 1
-                if asr and asr.available():
-                    asr_buf.append(ints)
-                    if frames % CMD_EVERY == 0 and asr_buf:
-                        snap = np.concatenate(asr_buf)[-TW_SR * 4:]; asr_buf.clear()
-                        asyncio.create_task(check_done(snap))
-                if done["v"] or frames >= MAX or (spoke > 50 and silence >= SILENCE_HOLD):
+                # rolling ASR over the last ~5s (kept, not discarded — so 'done' is never lost mid-transcribe)
+                if asr and asr.available() and frames % CMD_EVERY == 0 and not busy["v"] and pcm:
+                    snap = np.concatenate(pcm)[-TW_SR * 5:]
+                    asyncio.create_task(check_done(snap))
+                if not end["reason"]:
+                    if frames >= MAX: end["reason"] = "cap"
+                    elif spoke > 50 and silence >= SILENCE_HOLD: end["reason"] = "silence"
+                if end["reason"]:
                     break
             elif ev == "stop":
+                end["reason"] = end["reason"] or "hangup"
                 break
     except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
+        end["reason"] = end["reason"] or "disconnect"
+    except Exception as e:
+        print(f"[demo-capture] error: {e}", flush=True)
     finally:
+        buf = np.concatenate(pcm) if pcm else np.zeros(0, dtype=np.int16)
         if call_sid:
-            buf = np.concatenate(pcm) if pcm else np.zeros(0, dtype=np.int16)
             DEMO.setdefault(call_sid, {})["pcm"] = buf.astype(np.int16).tobytes()   # int16 @ 8k
+        print(f"[demo-capture] end ({end['reason']}) · {frames} frames · {round(len(buf)/TW_SR,1)}s captured", flush=True)
 
 
 @router.websocket("/api/twilio/demo-play-ws")
@@ -574,8 +583,10 @@ async def twilio_demo_play_ws(ws: WebSocket):
                 return
         raw = DEMO.get(call_sid, {}).get("pcm")
         if not raw or not _AUDIOOP:
+            print(f"[demo-play] model={model}: no captured audio for call (raw={bool(raw)}, audioop={_AUDIOOP}) — nothing to play", flush=True)
             return
         buf = np.frombuffer(raw, dtype=np.int16)
+        print(f"[demo-play] model={model} · replaying {round(len(buf)/TW_SR,1)}s", flush=True)
 
         async def reader():                          # keypad → skip to next item
             try:
