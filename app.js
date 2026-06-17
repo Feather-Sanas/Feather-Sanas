@@ -166,6 +166,27 @@ const INDUSTRIES = {
   travel:               { label: 'Travel & Hospitality',  url: 'https://www.sanas.ai/travel' },
   telecom:              { label: 'Telecom',               url: null },   // no dedicated page; framed via telephony/NC
 };
+// Real sanas.ai customer stories, mapped to the industry verticals (sanas.ai/customer-stories).
+const CUSTOMER_STORIES = {
+  healthcare: [
+    { title: 'Healthcare Revenue Cycle Leader — clarity & patient experience', url: 'https://www.sanas.ai/customer-stories/healthcare-revenue-cycle' },
+    { title: 'Sanas & Trajector — powering healthcare', url: 'https://www.sanas.ai/customer-stories/trajector' },
+  ],
+  'financial-services': [
+    { title: 'Fortune 50 Global Financial Services Leader', url: 'https://www.sanas.ai/customer-stories/global-financial-services' },
+    { title: 'Consumer Credit Provider — trust, compliance, performance', url: 'https://www.sanas.ai/customer-stories/consumer-credit' },
+  ],
+  retail: [
+    { title: 'Food Delivery Platform — CSAT & efficiency with Accent Translation', url: 'https://www.sanas.ai/customer-stories/food-delivery-platform' },
+    { title: 'Home Services Protection — satisfaction & lifetime value', url: 'https://www.sanas.ai/customer-stories/home-services-protection' },
+  ],
+  travel: [
+    { title: 'Wyndham Group — 50% increase in sales with Sanas', url: 'https://www.sanas.ai/customer-stories/wyndham-hotels' },
+  ],
+  telecom: [
+    { title: 'Cable & Internet Provider — outbound sales conversions with Accent Translation', url: 'https://www.sanas.ai/customer-stories/cable-and-internet-provider' },
+  ],
+};
 function skepticScore(text) {
   const t = text.toLowerCase();
   let s = 0;
@@ -2139,6 +2160,22 @@ function partnerFormNode() {
     go, out);
 }
 
+/* ---------- customer-story card for the selected industry (sanas.ai/customer-stories) ---------- */
+function customerStoryNode(key) {
+  const stories = CUSTOMER_STORIES[key];
+  if (!stories || !stories.length) return null;
+  const card = el('div', { class: 'story-card rich' },
+    el('div', { class: 'story-head' }, `Customer stories · ${INDUSTRIES[key]?.label || ''}`));
+  stories.forEach(s => {
+    const a = el('a', { class: 'story-link', href: s.url, target: '_blank', rel: 'noopener', title: s.url },
+      el('span', { class: 'sl-ico', html: DOC_SVG }), document.createTextNode(s.title));
+    a.addEventListener('click', () => emit({ event: 'customer_story_click', industry: key, url: s.url }));
+    card.appendChild(a);
+  });
+  card.appendChild(el('a', { class: 'demo-cal-link', href: 'https://www.sanas.ai/customer-stories', target: '_blank', rel: 'noopener' }, 'All customer stories →'));
+  return card;
+}
+
 /* ---------- debug / observability drawer (F11) ---------- */
 function renderDebug() {
   const d = $('#debugBody'); if (!d) return;
@@ -2262,7 +2299,7 @@ document.addEventListener('DOMContentLoaded', () => {
       travel: `Travel & hospitality — accent clarity across global guests and 24/7 lines. See [Speech AI for Travel & Hospitality](${ind.url}). Reservations, disruptions, or loyalty desks?`,
       telecom: `Telecom — clearer in-network voice lowers churn and lifts ARPU, and on the support side cuts AHT. Want the churn + ARPU ROI, or how Sanas runs in-path on the media stream?`,
     }[key];
-    if (line) addMessage('san', line);
+    if (line) addMessage('san', line, CUSTOMER_STORIES[key] ? { nodes: [customerStoryNode(key)] } : {});
   });
 
   // composer

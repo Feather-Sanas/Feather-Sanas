@@ -144,16 +144,23 @@ def _retrieve(persona: str | None, q: str, industry: str | None = None, k: int =
     prefer = ind_pref or _prefer(persona, q)
     docs = doc_index.search(q, k=2) if doc_index.count() else []
     web = webindex.search(q, k=k, prefer=prefer)
-    # If an industry with a dedicated page is selected, guarantee that page is in
-    # context (term-matching alone may miss it) so answers ground in the vertical.
-    if ind_pref and not any(ind_pref in w["url"] for w in web):
+    # When an industry is selected, pin its landing page AND its customer story into
+    # context (term-matching alone may miss them) so answers ground in the vertical
+    # and can cite the matching case study.
+    pinned: list[dict] = []
+    if ind_pref:
         page = webindex.by_url(ind_pref)
         if page:
-            page["kind"] = "web"
-            web = [page] + web[:max(0, k - 1)]
+            pinned.append(page)
+    story = _INDUSTRY_STORIES.get(industry)
+    if story:
+        pinned.append(dict(story))
+    if pinned:
+        urls = {p["url"] for p in pinned}
+        web = pinned + [w for w in web if w["url"] not in urls]
     for w in web:
         w.setdefault("kind", "web")
-    return (docs + web)[:k + len(docs)]
+    return (docs + web)[:k + len(docs) + len(pinned)]
 
 
 class ChatTurn(BaseModel):
@@ -177,6 +184,26 @@ _INDUSTRY_PREFER = {
 _INDUSTRY_LABEL = {
     "healthcare": "Healthcare", "financial-services": "Financial Services",
     "retail": "Retail", "travel": "Travel & Hospitality", "telecom": "Telecom",
+}
+# Real sanas.ai customer stories per vertical — pinned into retrieval when that
+# industry is selected so Claude can cite the matching case study (the individual
+# story pages aren't in the crawled index).
+_INDUSTRY_STORIES = {
+    "healthcare": {"title": "Customer story — Healthcare Revenue Cycle Leader",
+                   "url": "https://www.sanas.ai/customer-stories/healthcare-revenue-cycle",
+                   "snippet": "How a healthcare revenue cycle leader improved clarity and patient experience with Sanas."},
+    "financial-services": {"title": "Customer story — Fortune 50 Global Financial Services Leader",
+                   "url": "https://www.sanas.ai/customer-stories/global-financial-services",
+                   "snippet": "A Fortune 50 financial-services leader strengthened trust, clarity, and compliance on every call with Sanas."},
+    "retail": {"title": "Customer story — Food Delivery Platform",
+                   "url": "https://www.sanas.ai/customer-stories/food-delivery-platform",
+                   "snippet": "A food-delivery platform boosted CSAT and efficiency with Sanas Accent Translation."},
+    "travel": {"title": "Customer story — Wyndham Group",
+                   "url": "https://www.sanas.ai/customer-stories/wyndham-hotels",
+                   "snippet": "Wyndham Group saw a 50% increase in sales with Sanas."},
+    "telecom": {"title": "Customer story — Cable & Internet Provider",
+                   "url": "https://www.sanas.ai/customer-stories/cable-and-internet-provider",
+                   "snippet": "A cable & internet provider enhanced outbound sales conversions with Sanas Accent Translation."},
 }
 
 

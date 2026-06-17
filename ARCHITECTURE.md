@@ -362,6 +362,16 @@ upload ─► doc_index.ingest(parse→chunk→index) ─► rag_store.json (dis
 /api/chat[/stream]:  _retrieve() = doc_index.search(q) + webindex.search(q)  ─►  llm.chat(context=merged)
 ```
 
+### Industry verticals + customer stories (`app.js` + `main.py`)
+The industry dropdown (Healthcare / Financial Services / Retail / Travel / Telecom) sets a
+vertical that (a) posts a tailored line linking the industry's sanas.ai page, (b) renders an
+in-chat **customer-story card** with the real `sanas.ai/customer-stories/<slug>` case studies
+for that vertical, and (c) rides along as `industry` on `/api/chat`. Server-side, `_retrieve()`
+**pins** the industry landing page + its customer story into the grounding context (via
+`webindex.by_url` and a curated `_INDUSTRY_STORIES` map) so term-matching can't drop them, and
+`llm.py` is told the vertical to frame examples/ROI. Telecom has no landing page, so it's
+framed via telephony/NC and pins only its story.
+
 ### Page-context awareness (`app.js`)
 On first open, Sani infers the persona from the page: `?persona=` param → section in
 view (`IntersectionObserver` over `[data-persona]` sections) → URL `#hash` → `help.` host

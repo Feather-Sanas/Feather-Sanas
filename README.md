@@ -238,7 +238,12 @@ The **Partner** persona shows the same kind of intake (`partnerFormNode` → `PO
 reseller / technology-ISV / referral / SI type, region, website, opportunity — emailed to
 the partnerships owner with a confirmation to the applicant (same SMTP, same graceful
 no-op). Selecting an **industry** (`industry` on `/api/chat`) biases retrieval to that
-vertical's page and tells Claude the vertical so examples and ROI are framed for it.
+vertical's page, tells Claude the vertical so examples and ROI are framed for it, and
+surfaces the **matching customer story** from [sanas.ai/customer-stories](https://www.sanas.ai/customer-stories)
+as an in-chat card — Healthcare → Revenue-Cycle Leader / Trajector, Financial Services →
+Fortune-50 leader / consumer credit, Retail → food-delivery / home-services, Travel →
+Wyndham (50% ↑ sales), Telecom → cable & internet provider. The story is also **pinned into
+retrieval** so chat answers can cite the case study.
 For Gmail SMTP use an **App Password** (not the account password); see `server/.env.example`.
 
 ## Telephony (Twilio) — talk to a human / in-path bridge
