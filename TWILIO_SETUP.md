@@ -55,14 +55,19 @@ calling *into* the Twilio number) always works on trial.
 ## Steps
 
 ### 1. Public URL (tunnel to the backend on :8000)
-Twilio must reach your TwiML and the Media-Streams `wss`:
+Twilio must reach your TwiML and the Media-Streams `wss`. **Pin a stable domain so
+`PUBLIC_BASE_URL` + the TwiML App Voice URL never need re-pointing** — ngrok's free tier
+includes one reserved static domain. Run:
 ```bash
-ngrok http 8000                      # → https://<id>.ngrok-free.dev   (stable; needs a free authtoken)
-# or: cloudflared tunnel --url http://localhost:8000   (no account; can be flaky)
+./scripts/tunnel.sh        # → always https://<your-reserved>.ngrok-free.dev  (pinned via --url)
 ```
-Copy the https URL → `PUBLIC_BASE_URL`.
+The script runs `ngrok http 8000 --url=https://$SANI_TUNNEL_DOMAIN` (default
+`overcast-acronym-traction.ngrok-free.dev`; override with `SANI_TUNNEL_DOMAIN=…`). Because
+the domain is fixed, set `PUBLIC_BASE_URL` to it once and the TwiML App Voice URL stays valid
+across restarts. (A bare `ngrok http 8000` may hand out a *random* URL — then you'd have to
+re-point both each session; the script avoids that. `cloudflared tunnel --url
+http://localhost:8000` is a no-account fallback, but its URL is not stable.)
 > ⚠️ This exposes the backend publicly (no per-endpoint auth). Stop the tunnel when done.
-> ngrok's free URL changes per session — re-point the TwiML App + number webhook if it does.
 
 ### 2. API key + secret  (secret shown once)
 Console → **Account → API keys & tokens → Create API key** (Standard) →
@@ -186,7 +191,7 @@ on upgrade too.
 
 **Guided-demo close:** saying **yes** (or pressing 1) to the callback question captures the number + a follow-up "how many seats / use case" answer as a lead — it shows up under `leads` in `/api/twilio/debug` and as `[demo-lead]` in the server log.
 
-**Gotchas:** the call recording lands a few seconds after the call ends (the fetch polls and offers "check again"); if the ngrok URL changed, re-point `PUBLIC_BASE_URL` + both webhooks; speech control needs `faster-whisper`.
+**Gotchas:** the call recording lands a few seconds after the call ends (the fetch polls and offers "check again"); start the tunnel with `./scripts/tunnel.sh` so the domain stays fixed (a bare `ngrok http 8000` can hand out a new URL, which would require re-pointing `PUBLIC_BASE_URL` + both webhooks); speech control needs `faster-whisper`.
 
 ---
 
