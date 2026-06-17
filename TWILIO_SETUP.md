@@ -179,7 +179,7 @@ on upgrade too.
 | Path | Do | Expect |
 |---|---|---|
 | Dial-in bridge | Call the Twilio number, key a destination, `#` | Two-way; your voice cleaned in-path; `1/2/3` switch model (tone), `0` = off |
-| Browser, hear-yourself | "Talk in the browser", blank number | You hear yourself through the model; mid-call ON/OFF toggle works |
+| Browser, hear-yourself | "Talk in the browser", blank number | You hear yourself through the model; **in-app ON/OFF + a model dropdown switch the Sanas model live mid-call** (no keypad needed) |
 | Browser dial | "Talk in the browser" + a number | Two-way call; on hang-up the recording auto-fetches + analyzes |
 | Call me / human / IVR / Sanas | Pick the mode + your number | Twilio calls you; afterward "Get & analyze the call recording" fetches it |
 | Guided model demo | "Guided model demo (voice agent)" + your number | Agent walks each model (raw → beep → Sanas); say **next / repeat / agent**; ends asking for a callback |
@@ -198,7 +198,7 @@ on upgrade too.
 - `WS /api/twilio/media` — single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back.
 - **Guided demo** — `POST /api/twilio/demo-step` (per-model state machine), `WS /api/twilio/demo` (raw↔Sanas A/B + speech/DTMF advance), `POST /api/twilio/demo-callback` + `/api/twilio/demo-lead` (the callback dialog + lead capture).
 - `GET /api/twilio/recording?call_sid=…` — proxies the finished call's recording WAV (for the upload-style analysis).
-- `POST /api/twilio/toggle {call_sid|bridge_id, enabled}` — mid-call On/Off.
+- `POST /api/twilio/toggle {call_sid|bridge_id, enabled?, model?}` — mid-call On/Off **and live model switch** (recreates the Sanas processor without dropping the call). The browser call mounts an in-app ON/OFF + model dropdown that calls this; dial-in still also supports DTMF.
 - `POST /api/twilio/call` — REST click-to-call.  `GET /api/twilio/token` — browser Voice access token.  `GET /api/twilio/debug` — live legs + captured leads.
 
 All endpoints degrade gracefully when unconfigured (`/api/twilio/config` reports what's live).

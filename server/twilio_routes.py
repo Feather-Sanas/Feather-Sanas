@@ -672,17 +672,27 @@ BRIDGES: dict[str, dict] = {}
 
 @router.post("/api/twilio/toggle")
 async def twilio_toggle(request: Request) -> JSONResponse:
+    """Mid-call control for an in-path call (single-leg media by call_sid, or in-path
+    bridge by bridge_id): flip Sanas on/off (`enabled`) and/or switch the active model
+    (`model`) live. Switching a model recreates the processor without dropping the call."""
+    import asyncio
     d = await request.json()
-    enabled = bool(d.get("enabled", True))
+    model = (d.get("model") or "").strip() or None
     bridge_id = (d.get("bridge_id") or "").strip()
-    if bridge_id:
-        BRIDGES.setdefault(bridge_id, {})["enabled"] = enabled
-        return JSONResponse({"ok": True, "bridge_id": bridge_id, "enabled": enabled})
     call_sid = (d.get("call_sid") or "").strip()
-    if not call_sid:
+    if bridge_id:
+        entry = BRIDGES.setdefault(bridge_id, {"enabled": True})
+    elif call_sid:
+        entry = STREAMS.setdefault(call_sid, {"enabled": True})
+    else:
         return JSONResponse({"ok": False, "detail": "call_sid or bridge_id required"}, status_code=400)
-    STREAMS.setdefault(call_sid, {"enabled": True})["enabled"] = enabled
-    return JSONResponse({"ok": True, "call_sid": call_sid, "enabled": enabled})
+    if "enabled" in d:
+        entry["enabled"] = bool(d.get("enabled"))
+    if model and model != entry.get("model"):
+        entry["enabled"] = True                       # picking a model implies Sanas on
+        await _set_model(entry, model, asyncio.get_running_loop())
+    return JSONResponse({"ok": True, "bridge_id": bridge_id or None, "call_sid": call_sid or None,
+                         "enabled": entry.get("enabled", True), "model": entry.get("model")})
 
 
 @router.get("/api/twilio/debug")
@@ -720,15 +730,9 @@ async def twilio_media(ws: WebSocket):
     await ws.accept()
     loop = asyncio.get_running_loop()
     model = ws.query_params.get("model") or SANAS_MODEL     # fallback; real value in customParameters
-    sess = None
     stream_sid = None
     call_sid = None
-    residual = np.zeros(0, dtype=np.int16)
-    frame = int(TW_SR * 0.02)  # 160 samples / 20ms
-
-    def echo(payload_b64):
-        return ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
-                                        "media": {"payload": payload_b64}}))
+    entry = None
 
     try:
         while True:
@@ -739,43 +743,26 @@ async def twilio_media(ws: WebSocket):
                 model = (msg["start"].get("customParameters") or {}).get("model") or model
                 stream_sid = msg["start"]["streamSid"]
                 call_sid = msg["start"].get("callSid") or stream_sid
-                STREAMS.setdefault(call_sid, {"enabled": True})
-                if sanas_client.client.mode == "real" and _AUDIOOP:
-                    try:
-                        sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, TW_SR)
-                        frame = sess.frame_samples
-                    except Exception:
-                        sess = None
+                # Shared session state (sess/up/down/resid/enabled/model) so /api/twilio/
+                # toggle can flip Sanas on/off AND switch the model live, mid-call.
+                entry = STREAMS.setdefault(call_sid, {"enabled": True})
+                entry["stream_sid"] = stream_sid
+                await _set_model(entry, model, loop)   # opens the processor at the model's native rate
             elif ev == "media":
-                # mid-call toggle: when the model is off (or unavailable), echo the
-                # raw line so the caller A/Bs against Sanas live.
-                enabled = STREAMS.get(call_sid, {}).get("enabled", True)
-                if sess is None or not _AUDIOOP or not enabled:
-                    await echo(msg["media"]["payload"])
+                if entry is None:                       # no start yet — echo raw
+                    await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
+                                                    "media": {"payload": msg["media"]["payload"]}}))
                     continue
-                pcm = audioop.ulaw2lin(base64.b64decode(msg["media"]["payload"]), 2)
-                ints = np.frombuffer(pcm, dtype=np.int16)
-                buf = np.concatenate([residual, ints])
-                n = len(buf) // frame
-                if n == 0:
-                    residual = buf
+                # _process_caller handles resampling + on/off; returns raw payload when
+                # Sanas is off/unavailable, the processed payload, or None while buffering.
+                try:
+                    out = await loop.run_in_executor(None, _process_caller, entry, msg["media"]["payload"])
+                except Exception:
+                    out = msg["media"]["payload"]       # never drop the call on a transient (mid model-switch)
+                if out is None:
                     continue
-                chunk, residual = buf[:n * frame], buf[n * frame:]
-                floats = chunk.astype(np.float32) / 32768.0
-
-                def run():
-                    out = []
-                    for i in range(n):
-                        out.extend(sess.process(floats[i * frame:(i + 1) * frame].tolist()))
-                    return out
-
-                out = await loop.run_in_executor(None, run)
-                arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
-                ulaw = audioop.lin2ulaw(arr.tobytes(), 2)
-                await ws.send_text(json.dumps({
-                    "event": "media", "streamSid": stream_sid,
-                    "media": {"payload": base64.b64encode(ulaw).decode()},
-                }))
+                await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
+                                               "media": {"payload": out}}))
             elif ev == "stop":
                 break
     except WebSocketDisconnect:
@@ -783,15 +770,38 @@ async def twilio_media(ws: WebSocket):
     except Exception:
         pass
     finally:
-        if call_sid:
+        if call_sid and call_sid in STREAMS:
+            sess = STREAMS[call_sid].get("sess")
+            if sess is not None:
+                try: await loop.run_in_executor(None, sess.close)
+                except Exception: pass
             STREAMS.pop(call_sid, None)
-        if sess is not None:
-            try: await loop.run_in_executor(None, sess.close)
-            except Exception: pass
 
 
 def _open_sess(model: str):
     return sanas_client.client.create_stream(model, sanas_client.MODEL_SAMPLE_RATES.get(model, TW_SR))
+
+
+async def _set_model(entry: dict, model: str, loop) -> None:
+    """Switch the live Sanas model on a STREAMS/BRIDGES entry mid-call: close the old
+    processor and open the new one at the model's native rate, resetting resample
+    state. The media/bridge loops read entry['sess'] each frame and pass raw audio
+    through during the brief swap, so the call is never dropped."""
+    if not model:
+        return
+    old = entry.get("sess")
+    entry["sess"] = None
+    if old is not None:
+        try: await loop.run_in_executor(None, old.close)
+        except Exception: pass
+    entry["up"] = entry["down"] = None
+    entry["resid"] = None
+    entry["model"] = model
+    if sanas_client.client.mode == "real" and _AUDIOOP:
+        try:
+            entry["sess"] = await loop.run_in_executor(None, _open_sess, model)
+        except Exception:
+            entry["sess"] = None
 
 
 def _process_caller(br: dict, payload_b64: str):

@@ -1198,21 +1198,37 @@ function twilioConnectNode() {
 
   const statusLine = () => el('div', { class: 'pg-status' });
 
-  /* mid-call on/off — flips Sanas processing on the live call by CallSid */
-  /* payload is {call_sid} (single-leg) or {bridge_id} (in-path bridge) */
-  function callToggle(payload) {
+  /* live mid-call controls — flip Sanas on/off AND switch the active model live,
+     on the in-path call. payload is {call_sid} (single-leg) or {bridge_id} (bridge). */
+  function callToggle(payload, model) {
     let enabled = true;
-    const b = el('button', { class: 'live-toggle on' }, 'Model: ON');
-    b.addEventListener('click', async () => {
-      enabled = !enabled;
-      b.classList.toggle('on', enabled); b.textContent = 'Model: ' + (enabled ? 'ON' : 'OFF');
+    const post = async (body) => {
       try {
         await fetch(SAN_API + '/api/twilio/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payload, enabled }) });
+          body: JSON.stringify({ ...payload, ...body }) });
       } catch {}
+    };
+    const onBtn = el('button', { class: 'live-toggle on' }, 'Sanas: ON');
+    onBtn.addEventListener('click', async () => {
+      enabled = !enabled;
+      onBtn.classList.toggle('on', enabled); onBtn.textContent = 'Sanas: ' + (enabled ? 'ON' : 'OFF');
+      await post({ enabled });
       emit({ event: 'twilio_toggle', enabled });
     });
-    return el('div', { class: 'tw-row tw-callctl' }, el('span', { class: 'tw-toggle-l' }, 'Sanas on the call:'), b);
+    // live model switcher — change the active Sanas model without dropping the call
+    const sel = el('select', { class: 'pg-langsel tw-live-model', 'aria-label': 'Switch Sanas model live' });
+    getModels().then(models => {
+      (models || []).forEach(m => sel.appendChild(el('option', { value: m.name }, m.label)));
+      if (model) sel.value = model;
+    });
+    sel.addEventListener('change', async () => {
+      enabled = true; onBtn.classList.add('on'); onBtn.textContent = 'Sanas: ON';
+      await post({ model: sel.value, enabled: true });
+      emit({ event: 'twilio_model_switch', model: sel.value });
+    });
+    return el('div', { class: 'tw-row tw-callctl' },
+      el('span', { class: 'tw-toggle-l' }, 'On the call:'), onBtn,
+      el('span', { class: 'tw-toggle-l' }, 'Model:'), sel);
   }
 
   async function placeCall(to, mode, status, toggleMount, model, onPlaced) {
@@ -1224,7 +1240,7 @@ function twilioConnectNode() {
       const d = await r.json();
       if (d.ok) {
         status.textContent = `Calling you now — pick up to ${mode === 'human' ? 'reach a specialist' : mode === 'sanas' ? 'hear Sanas enhance the line' : mode === 'demo' ? 'be walked through every model by voice' : 'use the IVR'}${model ? ' · Sanas ' + model : ''}. [${d.status || 'queued'}]`;
-        if (d.sid && toggleMount) toggleMount.appendChild(callToggle({ call_sid: d.sid }));
+        if (d.sid && toggleMount) toggleMount.appendChild(callToggle({ call_sid: d.sid }, model));
         if (d.sid && onPlaced) onPlaced(d.sid);
       } else if (/21219|unverified|trial account/i.test(d.detail || '')) {
         // Twilio trial: outbound calls only reach verified numbers
@@ -1421,8 +1437,8 @@ function twilioConnectNode() {
                             : `In call with ${to} — speak through the app (Sanas ${model} on the audio).`);
         const csid = conn.parameters && conn.parameters.CallSid;
         toggleMount.innerHTML = '';
-        if (togglePayload) toggleMount.appendChild(callToggle(togglePayload));
-        else if (csid) toggleMount.appendChild(callToggle({ call_sid: csid }));
+        if (togglePayload) toggleMount.appendChild(callToggle(togglePayload, model));
+        else if (csid) toggleMount.appendChild(callToggle({ call_sid: csid }, model));
         conn.on('error', (e) => { st.textContent = 'Call error: ' + (e.message || e); });
         conn.on('disconnect', () => {
           conn = null; sync(); toggleMount.innerHTML = '';
