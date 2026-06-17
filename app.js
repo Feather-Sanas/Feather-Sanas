@@ -603,6 +603,8 @@ const state = {
   persona: null,        // null until detected/selected
   personaExplicit: false,
   industry: null,       // vertical selected in the industry dropdown (null = unset)
+  adminConfigured: false,  // whether the server has an admin password set
+  adminToken: (() => { try { return sessionStorage.getItem('sani_admin') || null; } catch { return null; } })(),
   skeptic: 0,
   turn: 0,
   history: [],          // session-scoped memory (F9)
@@ -2020,9 +2022,15 @@ async function handleDocUpload(file) {
   emit({ event: 'doc_upload', doc_name: file.name });
   try {
     const form = new FormData(); form.append('file', file);
-    const resp = await fetch(SAN_API + '/api/rag/upload', { method: 'POST', body: form });
+    const resp = await fetch(SAN_API + '/api/rag/upload', { method: 'POST', headers: adminHeaders(), body: form });
     const data = await resp.json().catch(() => ({}));
     hideTyping();
+    if (resp.status === 401 || resp.status === 403 || resp.status === 503) {
+      adminClearLocal(); renderAdmin();
+      addMessage('san', 'Document upload is admin-only. Open the ⌗ panel (top-right) and log in to manage the knowledge base.');
+      emit({ event: 'doc_upload_denied', status: resp.status });
+      return;
+    }
     if (!resp.ok) {
       const why = data.detail || ('upload failed: ' + resp.status);
       addMessage('san', `I couldn't index that document — ${why} I can read PDF, DOCX, TXT, and Markdown (text-searchable, not scanned images).`);
@@ -2041,6 +2049,97 @@ async function handleDocUpload(file) {
   } finally {
     busy = false;
   }
+}
+
+/* ---------- Admin: knowledge-base (RAG) login + management (⌗ panel) ---------- */
+function adminHeaders() { return state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}; }
+function adminClearLocal() {
+  state.adminToken = null;
+  try { sessionStorage.removeItem('sani_admin'); } catch {}
+  updateDocBtn();
+}
+function updateDocBtn() {
+  const b = $('#sanDocUpload'); if (!b) return;
+  b.hidden = !(state.adminConfigured && state.adminToken);   // only admins see the composer doc button
+}
+async function adminFetchStatus() {
+  try { const d = await fetch(SAN_API + '/api/admin/status').then(r => r.json()); state.adminConfigured = !!d.configured; }
+  catch { state.adminConfigured = false; }
+  updateDocBtn(); renderAdmin();
+}
+async function adminLogin(password) {
+  try {
+    const r = await fetch(SAN_API + '/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok && d.token) {
+      state.adminToken = d.token;
+      try { sessionStorage.setItem('sani_admin', d.token); } catch {}
+      updateDocBtn(); renderAdmin(); emit({ event: 'admin_login' });
+      return true;
+    }
+    return false;
+  } catch { return false; }
+}
+async function adminLogout() {
+  try { await fetch(SAN_API + '/api/admin/logout', { method: 'POST', headers: adminHeaders() }); } catch {}
+  adminClearLocal(); renderAdmin(); emit({ event: 'admin_logout' });
+}
+async function adminClear() {
+  try {
+    const r = await fetch(SAN_API + '/api/rag/clear', { method: 'POST', headers: adminHeaders() });
+    if (r.status === 401 || r.status === 503) { adminClearLocal(); renderAdmin(); return; }
+    emit({ event: 'rag_cleared' });
+  } catch {}
+  refreshDocs();
+}
+async function refreshDocs() {
+  const wrap = $('#adminPanel .admin-docs'); if (!wrap) return;
+  try {
+    const r = await fetch(SAN_API + '/api/rag/docs', { headers: adminHeaders() });
+    if (r.status === 401 || r.status === 503) { adminClearLocal(); renderAdmin(); return; }
+    const d = await r.json();
+    wrap.replaceChildren();
+    if (!d.docs || !d.docs.length) { wrap.appendChild(el('div', { class: 'admin-note' }, 'No documents indexed yet.')); return; }
+    wrap.appendChild(el('div', { class: 'admin-note' }, `${d.docs.length} document(s) · ${d.chunks} sections`));
+    d.docs.forEach(doc => wrap.appendChild(el('div', { class: 'admin-doc' }, `${doc.name} — ${(doc.chunks || 0)} sections`)));
+  } catch { wrap.textContent = 'Could not load documents.'; }
+}
+function renderAdmin() {
+  const panel = $('#adminPanel'); if (!panel) return;
+  panel.replaceChildren();
+  panel.appendChild(el('div', { class: 'admin-head' }, 'Knowledge base (RAG)'));
+  if (!state.adminConfigured) {
+    panel.appendChild(el('div', { class: 'admin-note' }, 'Document upload is admin-only and not configured on this server. Set RAG_ADMIN_PASSWORD in server/.env to enable it.'));
+    return;
+  }
+  if (!state.adminToken) {
+    const pw = el('input', { type: 'password', class: 'admin-pw', placeholder: 'Admin password', autocomplete: 'current-password' });
+    const err = el('div', { class: 'admin-err' });
+    const btn = el('button', { class: 'admin-btn' }, 'Unlock');
+    const go = async () => {
+      err.textContent = ''; btn.disabled = true; btn.textContent = 'Unlocking…';
+      const ok = await adminLogin(pw.value);
+      btn.disabled = false; btn.textContent = 'Unlock';
+      if (!ok) err.textContent = 'Incorrect password.';
+    };
+    btn.addEventListener('click', go);
+    pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    panel.append(el('div', { class: 'admin-note' }, 'Log in to upload documents Sani can answer from.'), pw, btn, err);
+    return;
+  }
+  // logged in
+  const up = el('button', { class: 'admin-btn' }, 'Upload a document');
+  up.addEventListener('click', () => $('#sanDocFile').click());
+  const docs = el('div', { class: 'admin-docs' }, 'Loading…');
+  const clear = el('button', { class: 'admin-btn ghost' }, 'Clear all');
+  clear.addEventListener('click', () => adminClear());
+  const logout = el('button', { class: 'admin-btn ghost' }, 'Log out');
+  logout.addEventListener('click', () => adminLogout());
+  panel.append(
+    el('div', { class: 'admin-note' }, 'Logged in. Upload PDF / DOCX / TXT / MD — Sani answers grounded in them for everyone.'),
+    up, docs, el('div', { class: 'admin-actions' }, clear, logout));
+  refreshDocs();
 }
 
 /* ---------- "More Information" — book-a-demo intake (mirrors sanas.ai/book-demo) ---------- */
@@ -2326,11 +2425,15 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#sanDocUpload').addEventListener('click', () => $('#sanDocFile').click());
   $('#sanDocFile').addEventListener('change', e => { handleDocUpload(e.target.files[0]); e.target.value = ''; });
 
-  // debug drawer (internal, SSO-gated in production)
+  // debug drawer (internal, SSO-gated in production) — also hosts the RAG admin login
   $('#sanDebugBtn').addEventListener('click', () => {
     const dr = $('#debugDrawer'); dr.hidden = !dr.hidden;
     $('#sanDebugBtn').classList.toggle('active', !dr.hidden);
+    if (!dr.hidden) renderAdmin();   // refresh the admin panel each time it opens
   });
+
+  // admin login state (gates the knowledge-base / document upload)
+  adminFetchStatus();
   $('#debugClose').addEventListener('click', () => { $('#debugDrawer').hidden = true; $('#sanDebugBtn').classList.remove('active'); });
 
   // rolling-word hero animation

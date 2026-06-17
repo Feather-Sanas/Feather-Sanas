@@ -110,9 +110,12 @@ ASCII fallback:
 | `GET` | `/api/models` | Model list + metadata + feature tabs (SE / NC real; Accent / Language flagged n/a). |
 | `POST` | `/api/process` | Upload audio → ffmpeg decode → ingress probe → SDK `ProcessSamples` → WAV back. Timings/probe in `X-Sanas-*` headers; clip capped at `SAN_MAX_CLIP_S`. |
 | `POST` | `/api/asr` | Transcribe before/after (+ optional clean reference) → recognition confidence and true WER delta. |
-| `POST` | `/api/rag/upload` | **Document RAG.** Upload PDF/DOCX/TXT/MD → parse + chunk + index (persisted) → `{doc_id, name, chunks, total_docs}`. |
-| `GET` | `/api/rag/docs` | List indexed documents (name, chunk + char counts). |
-| `POST` | `/api/rag/clear` | Wipe the document store. |
+| `GET` | `/api/admin/status` | Whether an admin password is configured. |
+| `POST` | `/api/admin/login` | Admin login (`RAG_ADMIN_PASSWORD`) → in-memory bearer token (cleared on restart). |
+| `POST` | `/api/admin/logout` | Invalidate the presented admin token. |
+| `POST` | `/api/rag/upload` | **Document RAG (admin).** Upload PDF/DOCX/TXT/MD → parse + chunk + index (persisted) → `{doc_id, name, chunks, total_docs}`. Requires `X-Admin-Token`. |
+| `GET` | `/api/rag/docs` | List indexed documents (admin; `X-Admin-Token`). |
+| `POST` | `/api/rag/clear` | Wipe the document store (admin; `X-Admin-Token`). |
 | `POST` | `/api/demo/book` | **Book a demo / More information.** Capture the lead → email it to `DEMO_NOTIFY_EMAIL` + a confirmation (with the booking link) to the contact via SMTP → return `BOOKING_URL`. |
 | `GET` | `/api/demo/config` | Booking URL, resolved embeddable `embed_url` (the scheduler is shown inline in an iframe), and whether SMTP is configured. |
 | `POST` | `/api/partner/apply` | **Partner application** (mirrors sanas.ai/partner-form): capture → email to the partnerships owner + confirmation to the applicant (SMTP, graceful no-op). |
@@ -346,7 +349,11 @@ sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query
 ```
 
 ### Document RAG (`server/doc_index.py`)
-A user uploads a file (`POST /api/rag/upload`); `doc_index.extract_text()` parses it
+**Upload is admin-gated** (`require_admin` dependency on `/api/rag/{upload,docs,clear}`):
+`RAG_ADMIN_PASSWORD` in `.env` enables an in-app login (⌗ panel) that mints an in-memory
+bearer token sent as `X-Admin-Token`; the composer's document button only appears once
+logged in. Retrieval over already-indexed docs is **not** gated — every visitor's chat turn
+can ground in them. An admin uploads a file (`POST /api/rag/upload`); `doc_index.extract_text()` parses it
 (pypdf / python-docx / plain decode + HTML strip), `_chunk()` splits it into ~2 kB blocks
 on paragraph/sentence boundaries, and each chunk is lexically indexed with the **same
 term-frequency scoring as the site** so the two result sets are directly comparable. The

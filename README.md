@@ -78,7 +78,7 @@ labelled by `/api/health` and in the UI) so the whole UX still works.
 | File | Purpose |
 |------|---------|
 | `index.html` / `styles.css` / `app.js` | The Sani front-end (marketing surface + chat consultant) |
-| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*`, `/api/demo/*`; serves the front-end |
+| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*` (admin-gated), `/api/admin/*`, `/api/demo/*`; serves the front-end |
 | `server/mailer.py` | Tiny SMTP sender for the "More Information / book a demo" flow (creds in `.env`; no-ops gracefully when unset) |
 | `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples), with a mock fallback |
 | `server/llm.py` | Sani's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
@@ -179,14 +179,20 @@ server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (p
 
 ## Document RAG — ground answers in your own files
 
-Beyond the sanas.ai site, Sani can answer from **unstructured documents you upload**.
-The document button in the composer (next to the audio-clip upload) accepts **PDF,
-DOCX, TXT, and Markdown**; the backend parses the text (pypdf / python-docx / plain
-decode), splits it into ~2 kB chunks, and indexes them with the **same lexical scoring
-as the site index** — no embeddings service, no per-request cost.
+Beyond the sanas.ai site, Sani can answer from **unstructured documents** — uploaded by
+an **admin**. Upload accepts **PDF, DOCX, TXT, and Markdown**; the backend parses the text
+(pypdf / python-docx / plain decode), splits it into ~2 kB chunks, and indexes them with
+the **same lexical scoring as the site index** — no embeddings service, no per-request cost.
 
-- **`POST /api/rag/upload`** ingests a file → `{doc_id, name, chunks, total_docs}`.
-  **`GET /api/rag/docs`** lists what's indexed; **`POST /api/rag/clear`** wipes it.
+- **Admin-gated upload** — managing the knowledge base is **admin-only**. Set
+  `RAG_ADMIN_PASSWORD` in `server/.env`, then log in via the **⌗ panel** (top-right of Sani):
+  `POST /api/admin/login` issues an in-memory bearer token (cleared on restart). Only then
+  does the composer's document button appear, and the admin panel shows the indexed docs +
+  **Clear all** / **Log out**. **Retrieval over already-uploaded docs stays open to every
+  visitor** — only upload/management is gated. (Unset password = upload locked, "not configured".)
+- **`POST /api/rag/upload`** (admin) ingests a file → `{doc_id, name, chunks, total_docs}`.
+  **`GET /api/rag/docs`** (admin) lists what's indexed; **`POST /api/rag/clear`** (admin) wipes it.
+  All three require the `X-Admin-Token` header; chat retrieval needs no token.
 - On every chat turn the backend retrieves from **both corpora** (`_retrieve()` merges
   uploaded-doc hits ahead of sanas.ai pages) and labels each source `kind: "doc" | "web"`.
   Claude is told the documents are the user's own priority material, refers to them by

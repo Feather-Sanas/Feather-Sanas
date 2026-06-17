@@ -80,8 +80,10 @@
     <!-- internal debug / observability drawer (F11; SSO-gated in production) -->
     <div class="debug-drawer" id="debugDrawer" hidden>
       <button class="icon-btn debug-close" id="debugClose" aria-label="Close debug">✕</button>
-      <h4>Session trace — internal observability</h4>
-      <div class="meta">Every turn is a traced event (§7.8). Joinable with speech-engine sessions via the shared session-lineage schema. SSO-gated to Sanas employees in production.</div>
+      <h4>Internal — admin &amp; session trace</h4>
+      <div class="meta">Admin functions are SSO-gated to Sanas employees in production. Every turn is also a traced event (§7.8), joinable with speech-engine sessions via the shared session-lineage schema.</div>
+      <div class="admin-panel" id="adminPanel"></div>
+      <h4 class="trace-h">Session trace</h4>
       <div id="debugBody"></div>
     </div>
 
@@ -144,7 +146,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 21h14"/></svg>
       </button>
       <input type="file" id="sanDocFile" accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain" hidden />
-      <button class="upload-btn" id="sanDocUpload" title="Add a document (PDF, DOCX, TXT, MD) for Sani to reference" aria-label="Add a document for Sani to reference">
+      <button class="upload-btn" id="sanDocUpload" title="Add a document (PDF, DOCX, TXT, MD) — admin only" aria-label="Add a document for Sani to reference (admin)" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
       </button>
       <textarea id="sanInput" rows="1" placeholder="Tell Sani what you’re trying to solve…" aria-label="Message Sani"></textarea>

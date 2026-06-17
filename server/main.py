@@ -24,7 +24,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -401,13 +401,67 @@ async def process(file: UploadFile = File(...), model: str | None = None):
     return Response(content=wav, media_type="audio/wav", headers=headers)
 
 
+# ---- Admin auth: gate knowledge-base (RAG) upload/management behind a login ----
+# RAG_ADMIN_PASSWORD lives only in server/.env. If unset, admin login is "not
+# configured" and the upload/manage endpoints are locked. Login issues an in-memory
+# bearer token (cleared on restart); chat-time RETRIEVAL stays open to everyone.
+import hmac as _hmac
+import secrets as _secrets
+
+RAG_ADMIN_PASSWORD = os.getenv("RAG_ADMIN_PASSWORD", "")
+_ADMIN_TOKENS: set[str] = set()
+
+
+def _admin_configured() -> bool:
+    return bool(RAG_ADMIN_PASSWORD)
+
+
+def require_admin(x_admin_token: str | None = Header(default=None, alias="X-Admin-Token")) -> None:
+    """Dependency: 401 unless a valid admin token is presented. 503 if no admin
+    password is configured on the server (so the feature is locked, not open)."""
+    if not _admin_configured():
+        raise HTTPException(status_code=503, detail="Admin login is not configured on this server.")
+    if not x_admin_token or x_admin_token not in _ADMIN_TOKENS:
+        raise HTTPException(status_code=401, detail="Admin login required.")
+
+
+class AdminLogin(BaseModel):
+    password: str = ""
+
+
+@app.get("/api/admin/status")
+def admin_status() -> JSONResponse:
+    return JSONResponse({"configured": _admin_configured()})
+
+
+@app.post("/api/admin/login")
+def admin_login(req: AdminLogin) -> JSONResponse:
+    if not _admin_configured():
+        return JSONResponse({"ok": False, "configured": False,
+                             "detail": "Admin login is not configured. Set RAG_ADMIN_PASSWORD in server/.env."})
+    if not _hmac.compare_digest(req.password or "", RAG_ADMIN_PASSWORD):
+        raise HTTPException(status_code=401, detail="Incorrect password.")
+    token = _secrets.token_urlsafe(24)
+    _ADMIN_TOKENS.add(token)
+    print("[admin] login ok", flush=True)
+    return JSONResponse({"ok": True, "token": token})
+
+
+@app.post("/api/admin/logout")
+def admin_logout(x_admin_token: str | None = Header(default=None, alias="X-Admin-Token")) -> JSONResponse:
+    if x_admin_token:
+        _ADMIN_TOKENS.discard(x_admin_token)
+    return JSONResponse({"ok": True})
+
+
 _RAG_EXTS = (".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".text")
 
 
 @app.post("/api/rag/upload")
-async def rag_upload(file: UploadFile = File(...)) -> JSONResponse:
+async def rag_upload(file: UploadFile = File(...), _: None = Depends(require_admin)) -> JSONResponse:
     """Ingest an unstructured document (PDF / DOCX / TXT / MD) so Sani can answer
-    grounded in it. Parsed, chunked, and persisted to disk; shared across sessions."""
+    grounded in it. Parsed, chunked, and persisted to disk; shared across sessions.
+    Admin-only (knowledge-base management); chat retrieval over the docs stays open."""
     name = file.filename or ""
     if not name.lower().endswith(_RAG_EXTS):
         raise HTTPException(status_code=415,
@@ -428,12 +482,12 @@ async def rag_upload(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.get("/api/rag/docs")
-def rag_docs() -> JSONResponse:
+def rag_docs(_: None = Depends(require_admin)) -> JSONResponse:
     return JSONResponse({"docs": doc_index.list_docs(), "chunks": doc_index.chunk_count()})
 
 
 @app.post("/api/rag/clear")
-def rag_clear() -> JSONResponse:
+def rag_clear(_: None = Depends(require_admin)) -> JSONResponse:
     return JSONResponse({"ok": True, "removed": doc_index.clear()})
 
 
