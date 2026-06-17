@@ -275,6 +275,20 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .src-link.src-doc:hover { background: var(--sanas-white); border-color: var(--gray-02); }
 .src-link.src-doc .sl-ico { color: var(--sanas-green-deep); }
 
+/* "More Information" book-a-demo intake form */
+.demo-form { background: var(--gray-01); border: 1px solid var(--gray-02); border-radius: var(--radius-md); padding: 14px; }
+.demo-form .demo-row { display: flex; gap: 8px; }
+.demo-form .demo-row > .roi-field { flex: 1; min-width: 0; }
+.demo-form select.demo-select, .demo-form textarea.demo-msg {
+  width: 100%; border: 1px solid var(--gray-02); border-radius: 10px; padding: 9px 11px;
+  font-size: 14px; font-family: inherit; background: #fff;
+}
+.demo-form textarea.demo-msg { resize: vertical; }
+.demo-disc { font-size: 11px; color: var(--gray-04); margin: 6px 0 2px; }
+.demo-ok { font-size: 13px; color: var(--sanas-black); background: #fff; border: 1px solid var(--gray-02); border-radius: 10px; padding: 11px; }
+.demo-err { font-size: 12.5px; color: #b00020; margin-top: 8px; }
+.roi-go.demo-book { display: block; text-align: center; text-decoration: none; margin-top: 10px; background: var(--sanas-green-deep); }
+
 /* Code block (developer) */
 .code-block { background: var(--dark-gray); color: #eee; border-radius: var(--radius-md); overflow: hidden; font-size: 12.5px; }
 .code-tabs { display: flex; background: #000; }
@@ -484,12 +498,12 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .live-meter:first-child .lm-track i { background: var(--gray-03); }
 
 /* "Test a model" / "Speak to a person" actions in the persona bar */
-.persona-actions { flex-basis: 100%; display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 4px; }
+.persona-actions { flex-basis: 100%; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; }
 .persona-action {
   display: inline-flex; align-items: center; gap: 6px;
   font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
   border: 0; background: transparent; color: var(--sanas-green-deep);
-  border-radius: 999px; padding: 6px 10px; white-space: nowrap;
+  border-radius: 999px; padding: 6px 9px; white-space: nowrap;
 }
 .persona-action svg { width: 14px; height: 14px; }
 .persona-action:hover { background: rgba(68, 236, 160, .14); }

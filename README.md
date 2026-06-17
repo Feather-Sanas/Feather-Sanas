@@ -78,7 +78,8 @@ labelled by `/api/health` and in the UI) so the whole UX still works.
 | File | Purpose |
 |------|---------|
 | `index.html` / `styles.css` / `app.js` | The Sani front-end (marketing surface + chat consultant) |
-| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*`; serves the front-end |
+| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*`, `/api/demo/*`; serves the front-end |
+| `server/mailer.py` | Tiny SMTP sender for the "More Information / book a demo" flow (creds in `.env`; no-ops gracefully when unset) |
 | `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples), with a mock fallback |
 | `server/llm.py` | Sani's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
 | `server/twilio_routes.py` | Optional voice layer: IVR, human handoff, dial-in **in-path bridge**, DTMF model switching (see [TWILIO_SETUP.md](TWILIO_SETUP.md)) |
@@ -209,6 +210,25 @@ persona drives the dropdown, the header register, the tailored opening line and 
 suggestions, and **primes the matching ROI model** (Telco → churn/ARPU, everyone else →
 contact-center). A user's explicit dropdown choice always wins.
 
+## More Information — book a demo (intake → email → calendar)
+
+The **More Information** button in the persona bar (next to *Test a model* and *Speak
+live*) runs a booking flow that mirrors [sanas.ai/book-demo](https://www.sanas.ai/book-demo):
+
+1. **Intake** — a form collects name, work email, company, job title, phone, company
+   size, and what they're trying to solve (`POST /api/demo/book`).
+2. **Email** — the backend emails the lead to `DEMO_NOTIFY_EMAIL`
+   (default `chris.featherstone@sanas.ai`, reply-to the contact) and sends the contact a
+   confirmation with the booking link. Sending uses SMTP from `server/.env`
+   (`SMTP_HOST/PORT/USER/PASS/FROM`); **if SMTP is unset the flow still works** — the lead
+   is logged and the booking link is shown, just no email goes out (`email_configured:false`).
+3. **Calendar** — the contact is routed to the **Google Appointment Scheduling** link
+   (`BOOKING_URL`, default `calendar.app.google/BzRcDMQAKtHvRJfs8`) to pick a time; Google
+   creates the calendar invite and emails both parties automatically.
+
+`GET /api/demo/config` reports the booking URL + whether SMTP is configured.
+For Gmail SMTP use an **App Password** (not the account password); see `server/.env.example`.
+
 ## Telephony (Twilio) — talk to a human / in-path bridge
 
 An optional voice layer connects a caller to a human, an IVR, or another phone, with
@@ -286,7 +306,7 @@ no engine or prompt change ships if a golden eval fails.
 | F5+ ASR recognition compare | "Analyze recognition" runs a real local ASR (faster-whisper) on before/after — true **WER delta vs the clean source** for curated clips, recognition-confidence delta for uploads |
 | F6 ROI snapshot | **Persona-aware** directional estimate with disclaimer: **Contact center** (Accent-Translation AHT reduction → agent-hours + $ saved, grounded in published 15% AHT / 18% CSAT / 22% FCR) and **Telco / carrier** (churn-prevention + ARPU-uplift → retained + incremental revenue). A toggle switches models; the active persona picks the default |
 | F7 Developer quickstart | Real `sanas_remote_sdk` init + `ProcessSamples`, this app's `/api/process` curl/JS, live backend status |
-| F8 Human handoff | "talk to a human" with transcript + detected-persona attachment |
+| F8 Human handoff | "Speak live" (transcript + detected-persona attachment) **and "More Information"** — a book-a-demo intake that emails the lead to the owner + a confirmation to the contact (SMTP), then routes to the Google booking link for the invite |
 | F9 Session memory + UUID | Session-scoped history; session UUID exposed (Tier-0 pattern) |
 | F10 Eight-layer trace | client→transport→ingress→queue→inference→ASR→return→playback; **ingress + processing timings are measured live** from the last `/api/process` call, rest illustrative |
 | F11 Self-observability | Per-turn event stream (§7.8 schema) in the internal `⌗` drawer (SSO-gated in prod) |

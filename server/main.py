@@ -54,6 +54,7 @@ _load_dotenv()
 import asr  # noqa: E402  (after dotenv load)
 import doc_index  # noqa: E402
 import llm  # noqa: E402
+import mailer  # noqa: E402
 import webindex  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
 from twilio_routes import router as twilio_router  # noqa: E402
@@ -379,6 +380,76 @@ def rag_docs() -> JSONResponse:
 @app.post("/api/rag/clear")
 def rag_clear() -> JSONResponse:
     return JSONResponse({"ok": True, "removed": doc_index.clear()})
+
+
+# ---- "Book a demo / More information" — intake + email + Google booking link ----
+DEMO_NOTIFY_EMAIL = os.getenv("DEMO_NOTIFY_EMAIL", "chris.featherstone@sanas.ai")
+BOOKING_URL = os.getenv("BOOKING_URL", "https://calendar.app.google/BzRcDMQAKtHvRJfs8")
+DEMO_LEADS: list[dict] = []
+import re as _re  # noqa: E402
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class DemoRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    company: str = ""
+    job_title: str = ""
+    phone: str = ""
+    company_size: str = ""
+    message: str = ""
+
+
+@app.get("/api/demo/config")
+def demo_config() -> JSONResponse:
+    return JSONResponse({"booking_url": BOOKING_URL, "email_configured": mailer.available()})
+
+
+@app.post("/api/demo/book")
+def demo_book(req: DemoRequest) -> JSONResponse:
+    """Mimics the sanas.ai/book-demo intake: capture the lead, email it to the
+    internal owner + send the contact a confirmation with the Google booking link,
+    then return that link so the UI can route them to pick a time."""
+    email = (req.email or "").strip()
+    name = " ".join(p for p in [req.first_name.strip(), req.last_name.strip()] if p) or "(no name)"
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="A valid work email is required.")
+
+    ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    fields = [("Name", name), ("Work email", email), ("Company", req.company),
+              ("Job title", req.job_title), ("Phone", req.phone),
+              ("Company size", req.company_size), ("Looking to solve", req.message)]
+    detail = "\n".join(f"{k}: {v}" for k, v in fields if v)
+    lead = {k.lower().replace(" ", "_"): v for k, v in fields}
+    lead["received"] = ts
+    DEMO_LEADS.append(lead)
+    print(f"[demo-book] lead from {name} <{email}> ({req.company or 'n/a'})", flush=True)
+
+    # 1) internal notification to the owner (reply-To the contact so a reply reaches them)
+    notify_body = (f"New demo request from Sani (More Information).\n\n{detail}\n\n"
+                   f"Received: {ts}\nBooking link sent to the contact: {BOOKING_URL}\n")
+    notify_ok, notify_err = mailer.send(DEMO_NOTIFY_EMAIL,
+                                        f"New demo request — {name}" + (f", {req.company}" if req.company else ""),
+                                        notify_body, reply_to=email)
+    # 2) confirmation to the contact with the scheduling link
+    first = req.first_name.strip() or "there"
+    confirm_body = (f"Hi {first},\n\nThanks for your interest in Sanas. Pick a time that works for you "
+                    f"and we'll walk you through it live:\n\n{BOOKING_URL}\n\n"
+                    f"We've logged your details:\n{detail}\n\n— The Sanas team\n")
+    contact_ok, contact_err = mailer.send(email, "Your Sanas demo — pick a time", confirm_body)
+
+    if notify_err:
+        print(f"[demo-book] notify email not sent: {notify_err}", flush=True)
+    if contact_err:
+        print(f"[demo-book] contact email not sent: {contact_err}", flush=True)
+
+    return JSONResponse({
+        "ok": True,
+        "booking_url": BOOKING_URL,
+        "email_configured": mailer.available(),
+        "emailed": {"notify": notify_ok, "contact": contact_ok},
+    })
 
 
 @app.post("/api/asr")

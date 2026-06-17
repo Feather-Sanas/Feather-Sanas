@@ -95,6 +95,7 @@ ASCII fallback:
 | **Site retrieval** | `server/webindex.py` + `web_index.json` | Lexical (TF) top-k over the crawled sanas.ai/help.sanas.ai index; intent-biased `prefer=`. |
 | **Document RAG** | `server/doc_index.py` + `rag_store.json` | Parses uploaded PDF/DOCX/TXT/MD, chunks (~2 kB), lexically indexes (same scoring as the site), **persists to disk**; `_retrieve()` in `main.py` merges doc hits ahead of site pages for grounding. |
 | **ASR** | `server/asr.py` | faster-whisper transcription + a from-scratch word-level WER. Optional dependency. |
+| **Mailer** | `server/mailer.py` | SMTP sender for the "More Information / book a demo" flow. Creds in `.env`; degrades to a logged no-op when unset. |
 | **Golden evals** | `evals/` | Loads the real `app.js` engine under jsdom and asserts guardrails, persona routing, recommendations, voice rules; static invariants on the LLM system prompt. CI gate. |
 
 ---
@@ -112,6 +113,8 @@ ASCII fallback:
 | `POST` | `/api/rag/upload` | **Document RAG.** Upload PDF/DOCX/TXT/MD → parse + chunk + index (persisted) → `{doc_id, name, chunks, total_docs}`. |
 | `GET` | `/api/rag/docs` | List indexed documents (name, chunk + char counts). |
 | `POST` | `/api/rag/clear` | Wipe the document store. |
+| `POST` | `/api/demo/book` | **Book a demo / More information.** Capture the lead → email it to `DEMO_NOTIFY_EMAIL` + a confirmation (with the booking link) to the contact via SMTP → return `BOOKING_URL`. |
+| `GET` | `/api/demo/config` | Booking URL + whether SMTP is configured. |
 | `WS` | `/api/stream` | **Live mic.** Bidirectional int16 PCM frames through a persistent processor; JSON control (`model`, `enabled`); bypass echoes input. |
 | `GET` | `/` , `/{index.html,app.js,styles.css}` | Serve the front-end (no-cache; all-list only). |
 

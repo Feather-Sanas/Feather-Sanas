@@ -193,6 +193,9 @@ const audioCtx = () => (_audioCtx ||= new (window.AudioContext || window.webkitA
 
 /* ---- backend (Sanas SDK orchestrator) ---- */
 const SAN_API = (window.SAN_API_BASE || '').replace(/\/$/, ''); // same-origin by default
+// Google Appointment Scheduling link for "More Information" (the backend can override
+// it via /api/demo/book's response from BOOKING_URL in .env).
+const BOOKING_URL = 'https://calendar.app.google/BzRcDMQAKtHvRJfs8';
 async function fetchHealth() {
   try { const r = await fetch(SAN_API + '/api/health'); return r.ok ? await r.json() : null; }
   catch { return null; }
@@ -1984,6 +1987,71 @@ async function handleDocUpload(file) {
   }
 }
 
+/* ---------- "More Information" — book-a-demo intake (mirrors sanas.ai/book-demo) ---------- */
+function bookDemoNode() {
+  const f = {};
+  const field = (key, label, attrs = {}) => {
+    const input = el('input', Object.assign({ type: 'text' }, attrs));
+    f[key] = input;
+    return el('label', { class: 'roi-field' }, el('span', {}, label), input);
+  };
+  const sizeSel = el('select', { class: 'demo-select' },
+    ...['Company size', '1–50', '51–200', '201–1,000', '1,000+'].map((o, i) => el('option', { value: i ? o : '' }, o)));
+  f.company_size = sizeSel;
+  const msg = el('textarea', { class: 'demo-msg', rows: '2', placeholder: 'What are you trying to solve? (optional)' });
+  const out = el('div', {});
+  const go = el('button', { class: 'roi-go' }, 'Request demo');
+  go.addEventListener('click', async () => {
+    const email = (f.email.value || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      out.replaceChildren(el('div', { class: 'demo-err' }, 'Please enter a valid work email.')); return;
+    }
+    go.disabled = true; go.textContent = 'Sending…';
+    const payload = {
+      first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email,
+      company: f.company.value.trim(), job_title: f.job_title.value.trim(),
+      phone: f.phone.value.trim(), company_size: sizeSel.value, message: msg.value.trim(),
+    };
+    try {
+      const r = await fetch(SAN_API + '/api/demo/book', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+      const url = d.booking_url || BOOKING_URL;
+      const emailed = d.emailed || {};
+      const note = d.email_configured
+        ? `We've emailed your details to our team${emailed.contact ? ' and sent you a confirmation' : ''}.`
+        : "We've logged your request and our team will follow up.";
+      out.replaceChildren(
+        el('div', { class: 'demo-ok' }, `Thanks${payload.first_name ? ', ' + payload.first_name : ''}. ${note} Pick a time and the calendar invite is created automatically.`),
+        el('a', { class: 'roi-go demo-book', href: url, target: '_blank', rel: 'noopener' }, 'Pick a time on the calendar →'));
+      emit({ event: 'demo_requested', email_configured: !!d.email_configured, emailed_notify: !!emailed.notify, recommendation_made: true });
+    } catch (err) {
+      go.disabled = false; go.textContent = 'Request demo';
+      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again, or use Speak live to reach us directly."));
+      emit({ event: 'demo_error', error: String(err) });
+    }
+  });
+  return el('div', { class: 'demo-form rich' },
+    el('div', { class: 'demo-row' }, field('first_name', 'First name'), field('last_name', 'Last name')),
+    field('email', 'Work email', { type: 'email', placeholder: 'you@company.com' }),
+    el('div', { class: 'demo-row' }, field('company', 'Company'), field('job_title', 'Job title')),
+    el('div', { class: 'demo-row' }, field('phone', 'Phone', { type: 'tel' }),
+      el('label', { class: 'roi-field' }, el('span', {}, 'Company size'), sizeSel)),
+    el('label', { class: 'roi-field' }, el('span', {}, 'What are you looking to solve?'), msg),
+    el('div', { class: 'demo-disc' }, 'We use this only to prepare and schedule your demo.'),
+    go, out);
+}
+function openBookDemo() {
+  openPanel();
+  setTimeout(() => {
+    addMessage('san',
+      "Happy to set up a live walkthrough. Share a few details and I'll send them to our team — then you pick a time and the calendar invite goes out automatically.",
+      { nodes: [bookDemoNode()] });
+    setSuggestions(['What will the demo cover?', 'Run an ROI snapshot', 'Speak live now']);
+  }, 250);
+}
+
 /* ---------- debug / observability drawer (F11) ---------- */
 function renderDebug() {
   const d = $('#debugBody'); if (!d) return;
@@ -2057,6 +2125,8 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => { setTimeout(openPlayground, 150); }));
   document.querySelectorAll('[data-open-person]').forEach(b =>
     b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 200); }));
+  document.querySelectorAll('[data-open-demo]').forEach(b =>
+    b.addEventListener('click', () => openBookDemo()));
 
   // session id display
   $('#sanSession').textContent = state.sessionId.slice(0, 8);
@@ -2128,5 +2198,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const open = new URLSearchParams(location.search).get('open');
   if (open === 'playground') setTimeout(openPlayground, 200);
   else if (open === 'connect' || open === 'person') { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 300); }
+  else if (open === 'demo' || open === 'book') openBookDemo();
   else if (open === 'chat' || open === 'san') openPanel();
 });
