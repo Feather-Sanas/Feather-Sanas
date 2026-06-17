@@ -1712,6 +1712,16 @@ function respond(text) {
     return { text, sources: ['kb-analytics'], nodes: [roiNode(telco ? 'telco' : 'cx')] };
   }
 
+  // ---- Customer stories (per industry) ----
+  if (/\b(customer stor(y|ies)|case stud(y|ies)|success stor(y|ies))\b/.test(t)) {
+    const key = state.industry;
+    const node = key && customerStoryNode(key);
+    if (node) return { text: `Here are Sanas customer stories for ${INDUSTRIES[key].label}:`, nodes: [node] };
+    return { text: "Here are Sanas customer stories across industries — pick an industry above and I'll show the most relevant ones.",
+      links: [{ title: 'Customer stories', url: 'https://www.sanas.ai/customer-stories' }],
+      suggestions: ['Play a before/after', 'Run an ROI snapshot', 'Talk to a human'] };
+  }
+
   // ---- Audio demo / showroom (F5) ----
   if (/\b(hear|listen|demo|sample|play|audio|before.?after|sound like)\b/.test(t)) {
     // pick scenario by context
@@ -2223,16 +2233,13 @@ function openPanel() {
   $('#sanLauncher').hidden = true;
   if (!state.opened) {
     state.opened = true;
-    // Open already in character for the page the visitor came from, unless they
-    // explicitly picked a persona first.
-    if (!state.personaExplicit) {
-      const ctx = detectPageContext();
-      if (ctx) setPersona(ctx, false);
-    }
-    const op = opening(state.persona);
+    // Default persona is "Just looking" — we do NOT auto-switch from the page
+    // section. Only an explicit ?persona= deep link (set before open), the
+    // dropdown, or what the user types changes it.
+    const op = opening(state.persona);   // null persona -> the "Just looking" opening
     typeMessage(op.text);     // types out on first open
     setSuggestions(op.suggestions);
-    emit({ event: 'session_start', persona_detected: state.persona, page_context: detectPageContext() });
+    emit({ event: 'session_start', persona_detected: state.persona || 'curious', page_context: detectPageContext() });
   }
   $('#sanInput').focus();
 }
@@ -2299,7 +2306,11 @@ document.addEventListener('DOMContentLoaded', () => {
       travel: `Travel & hospitality — accent clarity across global guests and 24/7 lines. See [Speech AI for Travel & Hospitality](${ind.url}). Reservations, disruptions, or loyalty desks?`,
       telecom: `Telecom — clearer in-network voice lowers churn and lifts ARPU, and on the support side cuts AHT. Want the churn + ARPU ROI, or how Sanas runs in-path on the media stream?`,
     }[key];
-    if (line) addMessage('san', line, CUSTOMER_STORIES[key] ? { nodes: [customerStoryNode(key)] } : {});
+    if (line) addMessage('san', line);
+    // surface the matching customer stories as a tag at the bottom (clicking it reveals them)
+    const sg = CUSTOMER_STORIES[key] ? ['Customer stories', 'Run an ROI snapshot', 'Play a before/after']
+                                     : ['Run an ROI snapshot', 'Play a before/after'];
+    setSuggestions(sg);
   });
 
   // composer

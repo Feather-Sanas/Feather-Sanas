@@ -199,16 +199,14 @@ as the site index** — no embeddings service, no per-request cost.
   document doesn't get forced into the context; if the docs don't answer the question,
   Sani says so rather than fabricating a fit.
 
-## Page-context awareness — Sani opens in character
+## Persona & deep-links
 
-Which marketing page/section the visitor is on **pre-selects the persona and the first
-message**. Detection priority: a `?persona=<key>` query param (explicit share link) →
-the section currently in view (an `IntersectionObserver` over `[data-persona]` sections:
-Products → CX, Science → Data Scientist, Trust → IT/Security) → the URL `#hash`
-(incl. `#docs` → Developer) → the `help.` host → otherwise *Just looking*. The chosen
-persona drives the dropdown, the header register, the tailored opening line and starter
-suggestions, and **primes the matching ROI model** (Telco → churn/ARPU, everyone else →
-contact-center). A user's explicit dropdown choice always wins.
+Sani **defaults to "Just looking"** — opening the panel does not auto-switch the persona
+based on which marketing section is in view. The persona changes only when the user picks
+it in the dropdown, types something that classifies them, or arrives via an explicit
+`?persona=<key>` share link (e.g. `?persona=buyer_telco`, which also primes the matching
+ROI model). The dropdown choice always wins. (`?open=chat|playground|connect|demo` deep-links
+open straight to a view.)
 
 ## More Information — book a demo (intake → email → calendar)
 
@@ -240,7 +238,8 @@ the partnerships owner with a confirmation to the applicant (same SMTP, same gra
 no-op). Selecting an **industry** (`industry` on `/api/chat`) biases retrieval to that
 vertical's page, tells Claude the vertical so examples and ROI are framed for it, and
 surfaces the **matching customer story** from [sanas.ai/customer-stories](https://www.sanas.ai/customer-stories)
-as an in-chat card — Healthcare → Revenue-Cycle Leader / Trajector, Financial Services →
+as a **"Customer stories" tag** in the bottom suggestions (clicking it reveals the case-study
+links) — Healthcare → Revenue-Cycle Leader / Trajector, Financial Services →
 Fortune-50 leader / consumer credit, Retail → food-delivery / home-services, Travel →
 Wyndham (50% ↑ sales), Telecom → cable & internet provider. The story is also **pinned into
 retrieval** so chat answers can cite the case study.

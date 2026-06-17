@@ -364,20 +364,20 @@ upload ─► doc_index.ingest(parse→chunk→index) ─► rag_store.json (dis
 
 ### Industry verticals + customer stories (`app.js` + `main.py`)
 The industry dropdown (Healthcare / Financial Services / Retail / Travel / Telecom) sets a
-vertical that (a) posts a tailored line linking the industry's sanas.ai page, (b) renders an
-in-chat **customer-story card** with the real `sanas.ai/customer-stories/<slug>` case studies
-for that vertical, and (c) rides along as `industry` on `/api/chat`. Server-side, `_retrieve()`
+vertical that (a) posts a tailored line linking the industry's sanas.ai page, (b) adds a
+**"Customer stories" tag** to the bottom suggestions — clicking it renders a card of the real
+`sanas.ai/customer-stories/<slug>` case studies for that vertical — and (c) rides along as
+`industry` on `/api/chat`. Server-side, `_retrieve()`
 **pins** the industry landing page + its customer story into the grounding context (via
 `webindex.by_url` and a curated `_INDUSTRY_STORIES` map) so term-matching can't drop them, and
 `llm.py` is told the vertical to frame examples/ROI. Telecom has no landing page, so it's
 framed via telephony/NC and pins only its story.
 
-### Page-context awareness (`app.js`)
-On first open, Sani infers the persona from the page: `?persona=` param → section in
-view (`IntersectionObserver` over `[data-persona]` sections) → URL `#hash` → `help.` host
-→ *Just looking*. The persona sets the dropdown, header register, tailored opening +
-suggestions, and the default ROI model (Telco → churn/ARPU, else contact-center). An
-explicit dropdown pick always wins.
+### Persona default & deep-links (`app.js`)
+Sani **defaults to "Just looking"** — opening the panel does not auto-switch the persona
+from the in-view section. Persona changes only via the dropdown, typed-intent
+classification, or an explicit `?persona=<key>` deep link (which also primes the matching
+ROI model). The dropdown pick always wins; `?open=` opens straight to a view.
 
 ### File-map additions
 ```
