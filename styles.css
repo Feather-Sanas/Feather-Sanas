@@ -450,6 +450,7 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .live { display: flex; flex-direction: column; gap: 12px; }
 .pg-live:not(:empty) { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--gray-02); }
 .pg-input-btn.live.open { background: var(--sanas-black); color: #fff; border-color: var(--sanas-black); }
+.pg-input-btn.in-call { background: var(--sanas-green-deep); color: #fff; border-color: var(--sanas-green-deep); }
 .live-ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .live-toggle {
   font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; border: 0;

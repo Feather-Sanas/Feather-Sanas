@@ -610,33 +610,42 @@ async def twilio_demo_play_ws(ws: WebSocket):
             msr = sanas_client.MODEL_SAMPLE_RATES.get(model, 16000)
             up, _st = audioop.ratecv(buf.tobytes(), 2, 1, TW_SR, msr, None)
             floats = np.frombuffer(up, dtype=np.int16).astype(np.float32) / 32768.0
+            sess = None
             try:
                 sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, msr)
                 fr = sess.frame_samples
-            except Exception:
+            except Exception as e:
+                print(f"[demo-play] {model}: create_stream failed: {e}", flush=True)
                 sess = None
-            if sess is None:                          # fall back to the raw clip
+            if sess is None:                          # fall back to the raw clip so something plays
+                print(f"[demo-play] {model}: no session — playing raw fallback", flush=True)
                 for off in range(0, len(buf), 160):
                     if skip["v"]: break
                     await send8k(buf[off:off + 160]); await asyncio.sleep(0.02)
             else:
-                down_state = None
-                for i in range(len(floats) // fr):    # process + stream one model frame at a time
+                down_state = None; sent = 0; err = None; nframes = len(floats) // fr
+                for i in range(nframes):              # process + stream one model frame at a time
                     if skip["v"]: break
-                    out = await loop.run_in_executor(None, sess.process, floats[i * fr:(i + 1) * fr].tolist())
-                    arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
-                    down, down_state = audioop.ratecv(arr.tobytes(), 2, 1, msr, TW_SR, down_state)
-                    d = np.frombuffer(down, dtype=np.int16)
-                    if d.size:
-                        await send8k(d)
+                    try:
+                        out = await loop.run_in_executor(None, sess.process, floats[i * fr:(i + 1) * fr].tolist())
+                    except Exception as e:
+                        err = err or e; out = []
+                    if out:
+                        arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+                        down, down_state = audioop.ratecv(arr.tobytes(), 2, 1, msr, TW_SR, down_state)
+                        d = np.frombuffer(down, dtype=np.int16)
+                        if d.size:
+                            await send8k(d); sent += int(d.size)
                     await asyncio.sleep(0.02)
                 try: await loop.run_in_executor(None, sess.close)
                 except Exception: pass
+                print(f"[demo-play] {model}: sent {round(sent / TW_SR, 1)}s of audio from {nframes} frames"
+                      + (f" · process err={err}" if err else ""), flush=True)
         rtask.cancel()
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[demo-play] error: {e}", flush=True)
 
 
 # ---- Voice access token for the browser SDK (hand-signed JWT) ---------------

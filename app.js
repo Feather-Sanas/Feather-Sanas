@@ -1295,6 +1295,7 @@ function twilioConnectNode() {
         ? '+1 206 555 0123 — number to call (blank = hear yourself)'
         : '+1 415 555 1234 — your phone (Twilio calls you)';
       if (!conn) btn.textContent = browser ? 'Talk in the browser' : 'Call me';
+      btn.classList.toggle('in-call', !!conn);
     }
     action.addEventListener('change', sync);
 
@@ -1346,7 +1347,7 @@ function twilioConnectNode() {
         }
         st.textContent = to ? `Calling ${to}…` : 'Connecting…';
         conn = await device.connect({ params });
-        btn.textContent = '■ Hang up';
+        btn.textContent = '■ Hang up'; btn.classList.add('in-call');
         st.textContent = !to ? `In call — hearing yourself through Sanas ${model}.`
           : (inpath.checked ? `Bridging to ${to} — they hear your voice cleaned by Sanas ${model} (beta).`
                             : `In call with ${to} — speak through the app (Sanas ${model} on the audio).`);
