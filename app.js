@@ -2018,14 +2018,22 @@ function bookDemoNode() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
       const url = d.booking_url || BOOKING_URL;
+      const embed = d.embed_url;
       const emailed = d.emailed || {};
       const note = d.email_configured
         ? `We've emailed your details to our team${emailed.contact ? ' and sent you a confirmation' : ''}.`
         : "We've logged your request and our team will follow up.";
-      out.replaceChildren(
-        el('div', { class: 'demo-ok' }, `Thanks${payload.first_name ? ', ' + payload.first_name : ''}. ${note} Pick a time and the calendar invite is created automatically.`),
-        el('a', { class: 'roi-go demo-book', href: url, target: '_blank', rel: 'noopener' }, 'Pick a time on the calendar →'));
-      emit({ event: 'demo_requested', email_configured: !!d.email_configured, emailed_notify: !!emailed.notify, recommendation_made: true });
+      const kids = [el('div', { class: 'demo-ok' },
+        `Thanks${payload.first_name ? ', ' + payload.first_name : ''}. ${note} Choose a time below — the calendar invite is created automatically.`)];
+      if (embed) {
+        // real Google Appointment Scheduling, embedded — shows live available times in-app
+        kids.push(el('iframe', { class: 'demo-cal-embed', src: embed, title: 'Pick a time', loading: 'lazy', referrerpolicy: 'no-referrer-when-downgrade' }));
+        kids.push(el('a', { class: 'demo-cal-link', href: url, target: '_blank', rel: 'noopener' }, 'Calendar not loading? Open it in a new tab →'));
+      } else {
+        kids.push(el('a', { class: 'roi-go demo-book', href: url, target: '_blank', rel: 'noopener' }, 'Pick a time on the calendar →'));
+      }
+      out.replaceChildren(...kids);
+      emit({ event: 'demo_requested', email_configured: !!d.email_configured, emailed_notify: !!emailed.notify, embedded: !!embed, recommendation_made: true });
     } catch (err) {
       go.disabled = false; go.textContent = 'Request demo';
       out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again, or use Speak live to reach us directly."));

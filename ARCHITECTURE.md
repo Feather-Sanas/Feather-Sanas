@@ -114,7 +114,7 @@ ASCII fallback:
 | `GET` | `/api/rag/docs` | List indexed documents (name, chunk + char counts). |
 | `POST` | `/api/rag/clear` | Wipe the document store. |
 | `POST` | `/api/demo/book` | **Book a demo / More information.** Capture the lead → email it to `DEMO_NOTIFY_EMAIL` + a confirmation (with the booking link) to the contact via SMTP → return `BOOKING_URL`. |
-| `GET` | `/api/demo/config` | Booking URL + whether SMTP is configured. |
+| `GET` | `/api/demo/config` | Booking URL, resolved embeddable `embed_url` (the scheduler is shown inline in an iframe), and whether SMTP is configured. |
 | `WS` | `/api/stream` | **Live mic.** Bidirectional int16 PCM frames through a persistent processor; JSON control (`model`, `enabled`); bypass echoes input. |
 | `GET` | `/` , `/{index.html,app.js,styles.css}` | Serve the front-end (no-cache; all-list only). |
 

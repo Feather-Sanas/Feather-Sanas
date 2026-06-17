@@ -222,11 +222,16 @@ live*) runs a booking flow that mirrors [sanas.ai/book-demo](https://www.sanas.a
    confirmation with the booking link. Sending uses SMTP from `server/.env`
    (`SMTP_HOST/PORT/USER/PASS/FROM`); **if SMTP is unset the flow still works** — the lead
    is logged and the booking link is shown, just no email goes out (`email_configured:false`).
-3. **Calendar** — the contact is routed to the **Google Appointment Scheduling** link
-   (`BOOKING_URL`, default `calendar.app.google/BzRcDMQAKtHvRJfs8`) to pick a time; Google
-   creates the calendar invite and emails both parties automatically.
+3. **Calendar (embedded, live times)** — the **Google Appointment Scheduling** page is
+   embedded **inline in the chat** (an iframe of the `?gv=true` embed URL), so the contact
+   sees the real available times and books **without leaving the app**; Google creates the
+   calendar invite and emails both parties automatically. The backend resolves the
+   `calendar.app.google` short link (`BOOKING_URL`, default `…/BzRcDMQAKtHvRJfs8`) to the
+   embeddable `/calendar/appointments/schedules/<id>?gv=true` URL (the only variant Google
+   serves without `X-Frame-Options`); a "open in a new tab" link is the fallback.
 
-`GET /api/demo/config` reports the booking URL + whether SMTP is configured.
+`GET /api/demo/config` reports the booking URL, the resolved `embed_url`, and whether SMTP
+is configured.
 For Gmail SMTP use an **App Password** (not the account password); see `server/.env.example`.
 
 ## Telephony (Twilio) — talk to a human / in-path bridge

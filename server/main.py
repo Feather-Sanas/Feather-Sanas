@@ -401,9 +401,37 @@ class DemoRequest(BaseModel):
     message: str = ""
 
 
+_EMBED_CACHE: dict = {"done": False, "url": None}
+
+
+def _booking_embed_url() -> str | None:
+    """Resolve BOOKING_URL (a calendar.app.google short link) to Google's embeddable
+    Appointment Scheduling URL — `/calendar/appointments/schedules/<id>?gv=true`, the
+    only variant that omits X-Frame-Options so it can render in an iframe. Cached;
+    returns None if it can't be resolved (the UI then falls back to the plain link)."""
+    if _EMBED_CACHE["done"]:
+        return _EMBED_CACHE["url"]
+    _EMBED_CACHE["done"] = True
+    url = None
+    try:
+        m = _re.search(r"/appointments/schedules/([^/?#]+)", BOOKING_URL)
+        if not m:                                  # short link → follow redirects to the full URL
+            import requests
+            final = requests.get(BOOKING_URL, allow_redirects=True, timeout=8).url
+            m = _re.search(r"/appointments/schedules/([^/?#]+)", final)
+        if m:
+            url = f"https://calendar.google.com/calendar/appointments/schedules/{m.group(1)}?gv=true"
+    except Exception as e:
+        print(f"[demo-book] could not resolve booking embed url: {e}", flush=True)
+        url = None
+    _EMBED_CACHE["url"] = url
+    return url
+
+
 @app.get("/api/demo/config")
 def demo_config() -> JSONResponse:
-    return JSONResponse({"booking_url": BOOKING_URL, "email_configured": mailer.available()})
+    return JSONResponse({"booking_url": BOOKING_URL, "embed_url": _booking_embed_url(),
+                         "email_configured": mailer.available()})
 
 
 @app.post("/api/demo/book")
@@ -447,6 +475,7 @@ def demo_book(req: DemoRequest) -> JSONResponse:
     return JSONResponse({
         "ok": True,
         "booking_url": BOOKING_URL,
+        "embed_url": _booking_embed_url(),
         "email_configured": mailer.available(),
         "emailed": {"notify": notify_ok, "contact": contact_ok},
     })
