@@ -305,8 +305,14 @@ async def process(file: UploadFile = File(...), model: str | None = None):
     model = model or client.model
     sr = MODEL_SAMPLE_RATES.get(model, client.sample_rate)
 
+    # ffmpeg decode (subprocess) and the SDK's real-time-paced process() are BLOCKING
+    # and can run for the full clip duration (up to SAN_MAX_CLIP_S). Run them on a
+    # worker thread, never on the event loop — otherwise a single clip stalls every
+    # other request, including the Twilio voice webhook (Twilio then 502s → the caller
+    # hears "an application error has occurred").
+    loop = asyncio.get_running_loop()
     t0 = time.perf_counter()
-    samples = _decode_to_pcm(raw, sr)
+    samples = await loop.run_in_executor(None, _decode_to_pcm, raw, sr)
     # The real engine runs in real time, so wall-clock ≈ clip duration. Cap the
     # clip so an upload can't hang the request for minutes (SAN_MAX_CLIP_S).
     max_clip_s = float(os.getenv("SAN_MAX_CLIP_S", "30"))
@@ -316,7 +322,7 @@ async def process(file: UploadFile = File(...), model: str | None = None):
         samples = samples[:max_samples]
     t_ingress = time.perf_counter()
     probe = _ingress_probe(samples, sr)
-    processed = client.process(samples, sr, model)
+    processed = await loop.run_in_executor(None, client.process, samples, sr, model)
     t_inference = time.perf_counter()
     wav = _encode_wav(processed, sr)
 
@@ -356,7 +362,8 @@ async def rag_upload(file: UploadFile = File(...)) -> JSONResponse:
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large")
     try:
-        info = doc_index.ingest(name, raw)
+        # parsing (pypdf/python-docx) can be slow on a large file — off the event loop
+        info = await asyncio.get_running_loop().run_in_executor(None, doc_index.ingest, name, raw)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -389,6 +396,7 @@ async def asr_compare(
                              "detail": "faster-whisper not installed on this backend"})
 
     sr = 16000  # Whisper operates at 16 kHz
+    loop = asyncio.get_running_loop()
 
     async def tx(f: UploadFile):
         raw = await f.read()
@@ -396,7 +404,10 @@ async def asr_compare(
             raise HTTPException(status_code=400, detail="empty audio")
         if len(raw) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="file too large")
-        return asr.transcribe(_decode_to_pcm(raw, sr), sr)
+        # ffmpeg decode + Whisper are blocking — keep them off the event loop so an
+        # ASR run can't stall the Twilio voice webhook (→ 502 / "application error").
+        pcm = await loop.run_in_executor(None, _decode_to_pcm, raw, sr)
+        return await loop.run_in_executor(None, asr.transcribe, pcm, sr)
 
     t0 = time.perf_counter()
     before_r = await tx(before)
