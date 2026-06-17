@@ -248,14 +248,32 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 .sanas-toggle.on .tg-track .knob { left: calc(100% - 31px); background: var(--wave-grad); }
 .tg-label { font-size: 11px; color: var(--gray-04); }
 
-/* ROI form */
-.roi { background: var(--gray-01); border: 1px solid var(--gray-02); border-radius: var(--radius-md); padding: 14px; }
-.roi label { display: block; font-size: 12px; color: var(--gray-04); margin: 8px 0 3px; }
-.roi input { width: 100%; border: 1px solid var(--gray-02); border-radius: 10px; padding: 9px 11px; font-size: 14px; font-family: inherit; }
-.roi .roi-go { margin-top: 12px; width: 100%; background: var(--sanas-black); color:#fff; border:none; border-radius: 10px; padding: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+/* ROI form (persona-aware: contact-center vs telco/carrier) */
+.roi-wrap { background: var(--gray-01); border: 1px solid var(--gray-02); border-radius: var(--radius-md); padding: 14px; }
+.roi-toggle { display: flex; gap: 6px; background: var(--gray-02); border-radius: 10px; padding: 3px; margin-bottom: 12px; }
+.roi-tab { flex: 1; border: none; background: none; padding: 7px 8px; font-size: 12px; font-weight: 600; color: var(--gray-04); border-radius: 8px; cursor: pointer; font-family: inherit; }
+.roi-tab.on { background: var(--sanas-white); color: var(--sanas-black); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.roi-field { display: block; margin: 0 0 8px; }
+.roi-field > span:first-child { display: block; font-size: 12px; color: var(--gray-04); margin: 0 0 3px; }
+.roi-field input { width: 100%; border: 1px solid var(--gray-02); border-radius: 10px; padding: 9px 11px; font-size: 14px; font-family: inherit; }
+.roi-hint { display: block; font-size: 10.5px; color: var(--gray-03); margin-top: 2px; }
+.roi-go { margin-top: 6px; width: 100%; background: var(--sanas-black); color:#fff; border:none; border-radius: 10px; padding: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .roi-out { margin-top: 12px; background: #fff; border-radius: 10px; padding: 12px; border: 1px solid var(--gray-02); }
 .roi-out .num { font-size: 26px; font-weight: 800; color: var(--sanas-green-deep); }
-.roi-out .disc { font-size: 11px; color: var(--gray-04); margin-top: 4px; }
+.roi-out > div { font-size: 12.5px; color: var(--sanas-black); margin-top: 5px; }
+.roi-out .roi-frame { font-size: 11.5px; color: var(--gray-04); margin-top: 7px; }
+.roi-out .roi-frame a { color: var(--sanas-green-deep); }
+.roi-out .disc { font-size: 11px; color: var(--gray-04); margin-top: 7px; }
+
+/* Uploaded-document card + "from your documents" source chip (RAG) */
+.doc-card { display: flex; gap: 10px; align-items: center; background: var(--gray-01); border: 1px solid var(--gray-02); border-radius: var(--radius-md); padding: 11px 13px; }
+.doc-card .doc-ico { display: inline-flex; flex: none; color: var(--sanas-green-deep); }
+.doc-card .doc-ico svg { width: 22px; height: 22px; }
+.doc-name { font-size: 13px; font-weight: 600; color: var(--sanas-black); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-sub { font-size: 11px; color: var(--gray-04); margin-top: 2px; }
+.src-link.src-doc { color: var(--sanas-black); cursor: default; }
+.src-link.src-doc:hover { background: var(--sanas-white); border-color: var(--gray-02); }
+.src-link.src-doc .sl-ico { color: var(--sanas-green-deep); }
 
 /* Code block (developer) */
 .code-block { background: var(--dark-gray); color: #eee; border-radius: var(--radius-md); overflow: hidden; font-size: 12.5px; }

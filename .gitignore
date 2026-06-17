@@ -14,3 +14,7 @@ node_modules/
 
 # SDK runtime logs (may contain account identifiers)
 server/*.log
+
+# RAG: user-uploaded document store (runtime data, may contain customer content)
+server/rag_store.json
+server/rag_store.tmp

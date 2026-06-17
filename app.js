@@ -602,23 +602,51 @@ function srcChips(ids) {
 
 /* clickable links to real sanas.ai pages cited for an answer (F1, live index) */
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.5-2.5a5 5 0 0 0-7.07-7.07L11 5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.43 13.5a5 5 0 0 0 7.07 7.07L13 19"/></svg>';
+const DOC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
 function linkChips(sources) {
   if (!sources || !sources.length) return null;
+  const docs = sources.filter(s => s.kind === 'doc');
+  const web = sources.filter(s => s.kind !== 'doc');
   const row = el('div', { class: 'src-links' });
-  sources.forEach(s => {
+  // uploaded documents — the user's own material, shown as non-clickable chips
+  const seen = new Set();
+  docs.forEach(s => {
+    const name = s.title || 'document';
+    if (seen.has(name)) return; seen.add(name);
+    row.appendChild(el('span', { class: 'src-link src-doc', title: 'From your uploaded document' },
+      el('span', { class: 'sl-ico', html: DOC_SVG }), document.createTextNode(name)));
+  });
+  web.forEach(s => {
     const a = el('a', { class: 'src-link', href: s.url, target: '_blank', rel: 'noopener noreferrer', title: s.url },
       el('span', { class: 'sl-ico', html: LINK_SVG }), document.createTextNode(s.title || s.url));
     a.addEventListener('click', () => emit({ event: 'source_click', url: s.url }));
     row.appendChild(a);
   });
-  return el('div', { class: 'src-links-wrap' }, el('div', { class: 'src-links-label' }, 'Sources · sanas.ai'), row);
+  const label = docs.length ? (web.length ? 'Sources · your documents + sanas.ai' : 'From your documents') : 'Sources · sanas.ai';
+  return el('div', { class: 'src-links-wrap' }, el('div', { class: 'src-links-label' }, label), row);
 }
 
-/* the canonical opening, persona-tunable (§5.3) */
+/* the canonical opening, persona-tunable (§5.3). The greeting + suggestions are
+   chosen by persona — which on first open is inferred from the page/section the
+   visitor came from (see detectPageContext / openPanel). */
+const OPENINGS = {
+  curious: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. What are you trying to solve? Tell me what you're hearing — background noise, accent intelligibility, or a codec-level issue — and I'll show you the signal before and after.",
+    suggestions: ['Offshore agents, US customers', 'Play a before/after', "I'm a developer", 'Is it really natural?'] },
+  buyer_cx: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. You're looking at the contact-center side, so I'll lead with outcomes — AHT, CSAT, FCR. Tell me your seat count and the main customer complaint, and I can run a directional ROI in a minute.",
+    suggestions: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after', 'How is it measured?'] },
+  buyer_telco: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. For a carrier the levers are retention and ARPU: clearer in-network voice lowers churn and supports premium-voice upsell. Want the churn + ARPU ROI, or how we run in-path on the media stream?",
+    suggestions: ['Churn + ARPU ROI', 'How does it run in-path?', 'MOS lift over G.711', 'Latency budget per leg'] },
+  buyer_it: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Since you're on Trust, I'll keep to architecture and compliance: Dual-Decoder, Zero-Knowledge deployment, ISO 27001 / SOC 2 Type II / GDPR. Where should I start — topology or the certification list?",
+    suggestions: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications', 'Deployment topology'] },
+  developer: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Fast path: the `sanas_remote_sdk` package — init, then stream PCM through a model. Want the code, the eight-layer latency trace, or to upload a clip and hear it processed?",
+    suggestions: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process', 'Latency budget'] },
+  data_scientist: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Coming from the Science page, so I'll talk shop: Sanas reconstructs the signal with a dual-decoder generative model rather than filtering, scored as WER for intelligibility and MOS/PESQ against clean references. Want the eval methodology, the architecture, or the science write-ups?",
+    suggestions: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'] },
+  help: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. I can pull the right article from the Sanas help center. What do you need — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access?",
+    suggestions: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'] },
+};
 function opening(persona) {
-  if (persona === 'developer')
-    return { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Fast path: the `sanas_remote_sdk` package — init, then stream PCM through a model. Want the code, the latency trace, or to upload a clip?" };
-  return { text: "Hi, I'm Sani — Sanas's Speech AI specialist. What are you trying to solve? Tell me what you're hearing — background noise, accent intelligibility, or a codec-level issue — and I'll show you the signal before and after." };
+  return OPENINGS[persona] || OPENINGS.curious;
 }
 
 /* ---------- ASR recognition comparison (real Whisper, via backend) ---------- */
@@ -1480,32 +1508,87 @@ function codeNode() {
   return wrap;
 }
 
-/* ROI snapshot (F6) */
-function roiNode() {
-  const seats = el('input', { type: 'number', min: '1', placeholder: 'e.g. 500', value: '500' });
-  const aht = el('input', { type: 'number', min: '1', placeholder: 'seconds, e.g. 420', value: '420' });
-  const csat = el('input', { type: 'number', min: '1', max: '100', placeholder: '%, e.g. 72', value: '72' });
+/* ROI snapshot (F6) — persona-aware. CX buyers get an Accent-Translation-driven
+   AHT / agent-cost model; Telco / Carrier buyers get a churn-prevention + ARPU-uplift
+   model. Directional, never a quote. `which` forces a model; otherwise the active
+   persona decides (buyer_telco -> telco, everyone else -> cx). */
+function num(n) { return '$' + Math.round(n).toLocaleString(); }
+function roiField(label, value, hint) {
+  const input = el('input', { type: 'number', min: '0', step: 'any', value: String(value) });
+  return { row: el('label', { class: 'roi-field' }, el('span', {}, label), input,
+                    hint ? el('span', { class: 'roi-hint' }, hint) : ''), input };
+}
+function roiNode(which) {
+  let model = which || (state.persona === 'buyer_telco' ? 'telco' : 'cx');
+  const wrap = el('div', { class: 'roi rich' });
+  const toggle = el('div', { class: 'roi-toggle' });
+  const fields = el('div', { class: 'roi-fields' });
   const out = el('div', {});
-  const go = el('button', { class: 'roi-go' }, 'Estimate');
-  go.addEventListener('click', () => {
-    const s = +seats.value || 0, a = +aht.value || 0;
-    // directional model: ~8% AHT reduction is a conservative published-range figure
-    const ahtCut = 0.08, secSaved = a * ahtCut;
-    const minsPerSeatDay = (secSaved * 60); // assume ~60 calls/seat/day rough
-    const annualHours = (minsPerSeatDay / 60) * s * 240;
-    const dollars = Math.round(annualHours * 28); // ~$28 loaded agent hour
-    out.innerHTML = '';
-    out.appendChild(el('div', { class: 'roi-out' },
-      el('div', { class: 'num' }, '$' + dollars.toLocaleString()),
-      el('div', {}, `directional annual capacity saved at ~${Math.round(secSaved)}s lower AHT across ${s} seats`),
-      el('div', { class: 'disc' }, 'This is directional. Let’s confirm against your real call mix on a demo.')));
-    emit({ event: 'roi_computed', recommendation_made: true });
-  });
-  return el('div', { class: 'roi rich' },
-    el('label', {}, 'Agent seats'), seats,
-    el('label', {}, 'Average handle time (seconds)'), aht,
-    el('label', {}, 'Current CSAT (%)'), csat,
-    go, out);
+  const tabCx = el('button', { class: 'roi-tab' }, 'Contact center');
+  const tabTel = el('button', { class: 'roi-tab' }, 'Telco / carrier');
+  toggle.append(tabCx, tabTel);
+
+  function buildCx() {
+    const seats = roiField('Agent seats', 500);
+    const aht = roiField('Avg handle time (sec)', 420);
+    const calls = roiField('Calls / agent / day', 50);
+    const cost = roiField('Loaded agent cost ($/hr)', 28);
+    const cut = roiField('AT-driven AHT reduction (%)', 8, '5–15% range');
+    fields.replaceChildren(seats.row, aht.row, calls.row, cost.row, cut.row);
+    const go = el('button', { class: 'roi-go' }, 'Estimate CX savings');
+    go.addEventListener('click', () => {
+      const s = +seats.input.value || 0, a = +aht.input.value || 0, c = +calls.input.value || 0,
+            hr = +cost.input.value || 0, k = (+cut.input.value || 0) / 100, days = 240;
+      const annualCallSeconds = s * c * a * days;
+      const hoursSaved = annualCallSeconds * k / 3600;
+      const dollars = hoursSaved * hr;
+      out.replaceChildren(el('div', { class: 'roi-out' },
+        el('div', { class: 'num' }, num(dollars) + ' / yr'),
+        el('div', {}, `${Math.round(hoursSaved).toLocaleString()} agent-hours/yr freed at ${(k * 100).toFixed(0)}% lower AHT across ${s.toLocaleString()} seats — redeploy or staff down.`),
+        el('div', { class: 'roi-frame', html: 'Published results: <a href="https://www.sanas.ai/noise-cancellation" target="_blank" rel="noopener">15% lower AHT, 18% higher CSAT, 22% better FCR</a> — fewer repeat contacts compound the savings.' }),
+        el('div', { class: 'disc' }, 'Directional, not a quote. We’d confirm against your real call mix on a demo.')));
+      emit({ event: 'roi_computed', roi_model: 'cx', recommendation_made: true });
+    });
+    fields.append(go, out);
+  }
+
+  function buildTelco() {
+    const subs = roiField('Subscriber base', 10000000);
+    const churn = roiField('Monthly churn (%)', 1.8);
+    const arpu = roiField('ARPU ($/mo)', 45);
+    const cr = roiField('Clarity-driven churn reduction (%)', 3, '1–5% assumption');
+    const up = roiField('ARPU uplift (%)', 1, '0.5–2% assumption');
+    fields.replaceChildren(subs.row, churn.row, arpu.row, cr.row, up.row);
+    const go = el('button', { class: 'roi-go' }, 'Estimate telco benefit');
+    go.addEventListener('click', () => {
+      const n = +subs.input.value || 0, mc = (+churn.input.value || 0) / 100, ar = +arpu.input.value || 0,
+            crd = (+cr.input.value || 0) / 100, upl = (+up.input.value || 0) / 100;
+      const retainedSubs = n * mc * 12 * crd;
+      const retainedRev = retainedSubs * ar * 12;
+      const arpuUpliftRev = n * ar * 12 * upl;
+      const total = retainedRev + arpuUpliftRev;
+      out.replaceChildren(el('div', { class: 'roi-out' },
+        el('div', { class: 'num' }, num(total) + ' / yr'),
+        el('div', {}, `${Math.round(retainedSubs).toLocaleString()} subscribers retained/yr → ${num(retainedRev)}/yr protected revenue.`),
+        el('div', {}, `${num(arpuUpliftRev)}/yr incremental ARPU from clearer support and premium-voice upsell.`),
+        el('div', { class: 'roi-frame', html: 'Clearer voice lifts intelligibility — <a href="https://www.sanas.ai/speech-enhancement" target="_blank" rel="noopener">WER improves 5–30% across streaming ASR</a>. Churn / ARPU factors are editable assumptions, not a published telco figure.' }),
+        el('div', { class: 'disc' }, 'Directional, before cost-to-serve. We’d tailor it to your network and call mix on a demo.')));
+      emit({ event: 'roi_computed', roi_model: 'telco', recommendation_made: true });
+    });
+    fields.append(go, out);
+  }
+
+  function render() {
+    tabCx.classList.toggle('on', model === 'cx');
+    tabTel.classList.toggle('on', model === 'telco');
+    out.replaceChildren();
+    (model === 'telco' ? buildTelco : buildCx)();
+  }
+  tabCx.addEventListener('click', () => { model = 'cx'; render(); });
+  tabTel.addEventListener('click', () => { model = 'telco'; render(); });
+  render();
+  wrap.append(fields);
+  return el('div', { class: 'roi-wrap rich' }, toggle, wrap);
 }
 
 /* ---------- the router: turn text -> response ---------- */
@@ -1581,11 +1664,14 @@ function respond(text) {
       sources: ['kb-reconstruct'], suggestions: ['Show me the Dual-Decoder', 'Play a before/after'] };
   }
 
-  // ---- ROI (F6) ----
-  if (/\b(roi|savings|save money|payback|cost.*saving|business case)\b/.test(t)) {
+  // ---- ROI (F6) — persona-aware: CX = AHT/agent-cost, Telco = churn + ARPU ----
+  if (/\b(roi|savings|save money|payback|cost.*saving|business case|churn|arpu)\b/.test(t)) {
     state.ctaTurnsAgo = 0;
-    return { text: "Three inputs and I'll give you a directional number you can sanity-check. This isn't a quote — it's a back-of-envelope estimate we'd confirm against your real call mix on a demo.",
-      sources: ['kb-analytics'], nodes: [roiNode()] };
+    const telco = state.persona === 'buyer_telco' || /\b(churn|arpu|carrier|subscriber)\b/.test(t);
+    const text = telco
+      ? "For a carrier the lever is retention and ARPU, not handle time. Set your subscriber base, churn, and ARPU and I'll show directional retained revenue plus upsell — editable assumptions, not a quote, that we'd tailor to your network on a demo."
+      : "For a contact center the lever is handle time. Give me seats, AHT, and agent cost and I'll show directional capacity reclaimed from Accent Translation — a back-of-envelope figure we'd confirm against your real call mix on a demo.";
+    return { text, sources: ['kb-analytics'], nodes: [roiNode(telco ? 'telco' : 'cx')] };
   }
 
   // ---- Audio demo / showroom (F5) ----
@@ -1859,6 +1945,45 @@ async function handleUpload(file) {
   }
 }
 
+/* ---------- document RAG: upload an unstructured file for grounding ---------- */
+function docNode(info) {
+  return el('div', { class: 'doc-card rich' },
+    el('div', { class: 'doc-ico', html: DOC_SVG }),
+    el('div', { class: 'doc-meta' },
+      el('div', { class: 'doc-name' }, info.name),
+      el('div', { class: 'doc-sub' }, `${(info.chunks || 0).toLocaleString()} sections · ${(info.chars || 0).toLocaleString()} chars · indexed for retrieval`)));
+}
+async function handleDocUpload(file) {
+  if (!file) return;
+  state.turn++;
+  addMessage('user', 'Added document: ' + file.name);
+  showTyping(); busy = true;
+  emit({ event: 'doc_upload', doc_name: file.name });
+  try {
+    const form = new FormData(); form.append('file', file);
+    const resp = await fetch(SAN_API + '/api/rag/upload', { method: 'POST', body: form });
+    const data = await resp.json().catch(() => ({}));
+    hideTyping();
+    if (!resp.ok) {
+      const why = data.detail || ('upload failed: ' + resp.status);
+      addMessage('san', `I couldn't index that document — ${why} I can read PDF, DOCX, TXT, and Markdown (text-searchable, not scanned images).`);
+      emit({ event: 'doc_upload_error', error: why });
+      return;
+    }
+    addMessage('san',
+      `Indexed **${data.name}** — ${(data.chunks || 0).toLocaleString()} sections, retrievable now. Ask me anything about it and I'll answer grounded in it, citing the document. Your file is stored on the Sani server only, never sent to the browser of anyone else.`,
+      { nodes: [docNode(data)] });
+    setSuggestions(['Summarize this document', 'What are the key points?', 'How does this relate to Sanas?']);
+    emit({ event: 'doc_indexed', doc_name: data.name, chunks: data.chunks, total_docs: data.total_docs });
+  } catch (err) {
+    hideTyping();
+    addMessage('san', "I couldn't reach the document indexer. Start the Sani server (`docker compose up`) and try again — parsing and storage happen there, not in the browser.");
+    emit({ event: 'doc_upload_error', error: String(err) });
+  } finally {
+    busy = false;
+  }
+}
+
 /* ---------- debug / observability drawer (F11) ---------- */
 function renderDebug() {
   const d = $('#debugBody'); if (!d) return;
@@ -1873,15 +1998,49 @@ function renderDebug() {
 /* ============================================================
    BOOTSTRAP UI
    ============================================================ */
+/* Which persona does the current page/section imply? Priority:
+   1) ?persona= query param (explicit share link)  2) the section currently in
+   view (tracked by an IntersectionObserver over [data-persona] sections)
+   3) the URL #hash  4) help.sanas.ai host.  Returns null -> "Just looking". */
+const _HASH_PERSONA = { products: 'buyer_cx', science: 'data_scientist', trust: 'buyer_it', docs: 'developer' };
+let pageContextPersona = null;     // updated by the observer as the user scrolls
+function detectPageContext() {
+  const param = new URLSearchParams(location.search).get('persona');
+  if (param && PERSONAS[param]) return param;
+  if (pageContextPersona) return pageContextPersona;
+  const hash = (location.hash || '').replace('#', '');
+  if (_HASH_PERSONA[hash]) return _HASH_PERSONA[hash];
+  if (/(^|\.)help\./.test(location.hostname)) return 'help';
+  return null;
+}
+function watchPageContext() {
+  const sections = document.querySelectorAll('[data-persona]');
+  if (!sections.length || !('IntersectionObserver' in window)) return;
+  const vis = new Map();
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => vis.set(e.target, e.isIntersecting ? e.intersectionRatio : 0));
+    let best = null, bestR = 0.05;     // require a little real visibility
+    vis.forEach((r, node) => { if (r > bestR) { bestR = r; best = node; } });
+    if (best) pageContextPersona = best.getAttribute('data-persona') || null;
+  }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+  sections.forEach(s => io.observe(s));
+}
+
 function openPanel() {
   $('#sanPanel').hidden = false;
   $('#sanLauncher').hidden = true;
   if (!state.opened) {
     state.opened = true;
+    // Open already in character for the page the visitor came from, unless they
+    // explicitly picked a persona first.
+    if (!state.personaExplicit) {
+      const ctx = detectPageContext();
+      if (ctx) setPersona(ctx, false);
+    }
     const op = opening(state.persona);
     typeMessage(op.text);     // types out on first open
-    setSuggestions(['Offshore agents, US customers', 'Play a before/after', "I'm a developer", 'Is it really natural?']);
-    emit({ event: 'session_start', persona_detected: state.persona });
+    setSuggestions(op.suggestions);
+    emit({ event: 'session_start', persona_detected: state.persona, page_context: detectPageContext() });
   }
   $('#sanInput').focus();
 }
@@ -1920,7 +2079,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sg = {
       developer: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process'],
       buyer_cx: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after'],
-      buyer_telco: ['How does it run in-path?', 'MOS lift over G.711', 'Latency budget per leg'],
+      buyer_telco: ['How does it run in-path?', 'Churn + ARPU ROI', 'MOS lift over G.711', 'Latency budget per leg'],
       buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
       data_scientist: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'],
       help: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'],
@@ -1936,9 +2095,11 @@ document.addEventListener('DOMContentLoaded', () => {
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
 
-  // upload
+  // upload — audio clip (process through a model) and documents (RAG grounding)
   $('#sanUpload').addEventListener('click', () => $('#sanFile').click());
   $('#sanFile').addEventListener('change', e => handleUpload(e.target.files[0]));
+  $('#sanDocUpload').addEventListener('click', () => $('#sanDocFile').click());
+  $('#sanDocFile').addEventListener('change', e => { handleDocUpload(e.target.files[0]); e.target.value = ''; });
 
   // debug drawer (internal, SSO-gated in production)
   $('#sanDebugBtn').addEventListener('click', () => {
@@ -1953,6 +2114,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (roll && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     setInterval(() => { wi = (wi + 1) % words.length; roll.textContent = words[wi]; }, 2200);
   }
+
+  // track which marketing section is in view so opening Sani starts in-character
+  watchPageContext();
+
+  // deep-link: ?persona=<key> starts Sani as that persona (explicit, so it sticks
+  // and primes the matching ROI model). Works with or without ?open=.
+  const personaParam = new URLSearchParams(location.search).get('persona');
+  if (personaParam && PERSONAS[personaParam]) setPersona(personaParam, true);
 
   // deep-link: ?open=chat|playground|connect opens straight to a view (handy for
   // shareable links and reproducible screenshots)

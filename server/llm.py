@@ -171,15 +171,29 @@ def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | No
         {"type": "text", "text": persona_block},
     ]
     if context:
-        # live sanas.ai retrieval — keep AFTER the cached prefix (it varies per turn)
-        lines = ["Relevant pages from sanas.ai / help.sanas.ai for THIS question. Ground your "
-                 "answer in them when applicable, and link to the ones you use INLINE with "
-                 "markdown: [short descriptive anchor](exact URL). Use the exact URLs below "
-                 "verbatim; put the link on the words it describes (not a bare URL or a "
-                 "'click here'). Aim for 1–3 inline links to the most relevant pages — don't "
-                 "force a link into every sentence:"]
-        for c in context:
-            lines.append(f"- {c['title']} — {c['url']}\n  {c.get('snippet', '')}")
+        # live retrieval — keep AFTER the cached prefix (it varies per turn). Two
+        # kinds: the user's UPLOADED DOCUMENTS (kind='doc') and crawled sanas.ai
+        # pages (kind='web'). Cite each appropriately.
+        docs = [c for c in context if c.get("kind") == "doc"]
+        web = [c for c in context if c.get("kind") != "doc"]
+        lines = ["Relevant context for THIS question. Ground your answer in it when "
+                 "applicable. Two source types:"]
+        if docs:
+            lines.append("\nFROM THE USER'S UPLOADED DOCUMENTS — treat these as the user's own "
+                         "material and the priority source. Refer to them by name (e.g. \"in "
+                         "<filename>\") and quote/paraphrase the relevant part; do NOT invent a "
+                         "URL for them. If the documents don't actually answer the question, say "
+                         "so rather than forcing a fit:")
+            for c in docs:
+                lines.append(f"- [{c.get('doc_name', c['title'])}]\n  {c.get('snippet', '')}")
+        if web:
+            lines.append("\nFROM sanas.ai / help.sanas.ai — link to the ones you use INLINE with "
+                         "markdown: [short descriptive anchor](exact URL), using the exact URLs "
+                         "below verbatim on the words they describe (not a bare URL or 'click "
+                         "here'). Aim for 1–3 inline links to the most relevant pages — don't "
+                         "force a link into every sentence:")
+            for c in web:
+                lines.append(f"- {c['title']} — {c['url']}\n  {c.get('snippet', '')}")
         blocks.append({"type": "text", "text": "\n".join(lines)})
     return blocks
 

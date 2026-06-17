@@ -78,11 +78,12 @@ labelled by `/api/health` and in the UI) so the whole UX still works.
 | File | Purpose |
 |------|---------|
 | `index.html` / `styles.css` / `app.js` | The Sani front-end (marketing surface + chat consultant) |
-| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`; serves the front-end |
+| `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*`; serves the front-end |
 | `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples), with a mock fallback |
 | `server/llm.py` | Sani's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
 | `server/twilio_routes.py` | Optional voice layer: IVR, human handoff, dial-in **in-path bridge**, DTMF model switching (see [TWILIO_SETUP.md](TWILIO_SETUP.md)) |
 | `server/webindex.py` + `server/web_index.json` | Lexical retrieval over the indexed sanas.ai content (incl. `/science`) that grounds chat answers and supplies citations |
+| `server/doc_index.py` + `server/rag_store.json` | **Document RAG** — parses uploaded PDF/DOCX/TXT/MD, chunks + lexically indexes them (persisted to disk), and grounds chat answers in the user's own material (`rag_store.json` is git-ignored runtime data) |
 | `server/asr.py` | faster-whisper transcription + from-scratch word-level WER (optional dependency) |
 | `scripts/index_site.py` | Crawls sanas.ai (product / science / blog) → `web_index.json` |
 | `server/Dockerfile` + `docker-compose.yml` | Ubuntu 22.04 x86-64 image that installs your SDK tarball |
@@ -175,6 +176,39 @@ prefers the science articles (`prefer="/science"`). Re-index anytime:
 server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (public content)
 ```
 
+## Document RAG — ground answers in your own files
+
+Beyond the sanas.ai site, Sani can answer from **unstructured documents you upload**.
+The document button in the composer (next to the audio-clip upload) accepts **PDF,
+DOCX, TXT, and Markdown**; the backend parses the text (pypdf / python-docx / plain
+decode), splits it into ~2 kB chunks, and indexes them with the **same lexical scoring
+as the site index** — no embeddings service, no per-request cost.
+
+- **`POST /api/rag/upload`** ingests a file → `{doc_id, name, chunks, total_docs}`.
+  **`GET /api/rag/docs`** lists what's indexed; **`POST /api/rag/clear`** wipes it.
+- On every chat turn the backend retrieves from **both corpora** (`_retrieve()` merges
+  uploaded-doc hits ahead of sanas.ai pages) and labels each source `kind: "doc" | "web"`.
+  Claude is told the documents are the user's own priority material, refers to them by
+  filename, and won't invent a URL for them; site pages still get inline markdown links.
+  Doc sources render as **"From your documents"** chips (not links) under the answer.
+- **Persistence** — the store is written to `server/rag_store.json` and **shared across
+  sessions**, so uploads survive a backend restart. It's git-ignored (may hold customer
+  content). A scanned/image-only PDF (no extractable text) is reported back, not crashed on.
+- **Honesty** — a near-zero lexical match is dropped (`min_score`), so an irrelevant
+  document doesn't get forced into the context; if the docs don't answer the question,
+  Sani says so rather than fabricating a fit.
+
+## Page-context awareness — Sani opens in character
+
+Which marketing page/section the visitor is on **pre-selects the persona and the first
+message**. Detection priority: a `?persona=<key>` query param (explicit share link) →
+the section currently in view (an `IntersectionObserver` over `[data-persona]` sections:
+Products → CX, Science → Data Scientist, Trust → IT/Security) → the URL `#hash`
+(incl. `#docs` → Developer) → the `help.` host → otherwise *Just looking*. The chosen
+persona drives the dropdown, the header register, the tailored opening line and starter
+suggestions, and **primes the matching ROI model** (Telco → churn/ARPU, everyone else →
+contact-center). A user's explicit dropdown choice always wins.
+
 ## Telephony (Twilio) — talk to a human / in-path bridge
 
 An optional voice layer connects a caller to a human, an IVR, or another phone, with
@@ -243,14 +277,14 @@ no engine or prompt change ships if a golden eval fails.
 
 | Spec | Implemented |
 |------|-------------|
-| F1 Grounded Q&A + sources | Lexical retrieval over a 13-chunk knowledge base; every answer shows source pills |
+| F1 Grounded Q&A + sources | Lexical retrieval over the ~220-page sanas.ai index **and uploaded documents (RAG)**; every answer shows source chips (site links + "from your documents") |
 | F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown: Just looking / Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in and linking to help.sanas.ai**) |
 | §3.4 Skeptic stance | Orthogonal per-turn score; triggers "showroom-first" behavior on any persona |
 | F3 Speech Science Educator | Acoustic Reconstruction + Dual-Decoder explanations, calibrated |
 | F4 Recommendation engine | Decision tree → product cards w/ rationale; handles compound challenges |
 | F5 Audio dual-mode | 3 curated scenarios playing the **real sanas.ai before/after clips** + **live upload processed through the real Sanas SDK** with the production ingress quality probe, a **model picker** (analyze the clip against any Sanas model), and a client-side **spectrogram** |
 | F5+ ASR recognition compare | "Analyze recognition" runs a real local ASR (faster-whisper) on before/after — true **WER delta vs the clean source** for curated clips, recognition-confidence delta for uploads |
-| F6 ROI snapshot | 3-input (seats / AHT / CSAT) directional estimate with disclaimer |
+| F6 ROI snapshot | **Persona-aware** directional estimate with disclaimer: **Contact center** (Accent-Translation AHT reduction → agent-hours + $ saved, grounded in published 15% AHT / 18% CSAT / 22% FCR) and **Telco / carrier** (churn-prevention + ARPU-uplift → retained + incremental revenue). A toggle switches models; the active persona picks the default |
 | F7 Developer quickstart | Real `sanas_remote_sdk` init + `ProcessSamples`, this app's `/api/process` curl/JS, live backend status |
 | F8 Human handoff | "talk to a human" with transcript + detected-persona attachment |
 | F9 Session memory + UUID | Session-scoped history; session UUID exposed (Tier-0 pattern) |
@@ -263,7 +297,7 @@ no engine or prompt change ships if a golden eval fails.
 The **audio path is real** (Sanas SDK via the backend). The rest still uses
 in-browser stand-ins a production deployment would replace per §7.6:
 
-- Retrieval is **lexical** here; production uses a vector store (pgvector/Pinecone) over the real corpus.
+- Retrieval is **lexical** here — across both the sanas.ai index and uploaded documents (RAG); production uses a vector store (pgvector/Pinecone) with embeddings over the real corpus, and would scope uploaded docs per-tenant.
 - Chat prose is **real Claude**, streamed token-by-token (per-persona, prompt-cached, KB-grounded) when a key is set; the deterministic engine is the fallback. Production would add the CI-gated golden-eval suite (§7.4 F12).
 - Upload audio uses the **real SDK** (`ProcessSamples`, real-time, capped at `SAN_MAX_CLIP_S`); curated scenarios are real-voice + noise processed by the real engine. Accent Translation stays illustrative until that model is exposed by the SDK.
 - Handoff is **simulated**; production wires Salesforce, Slack, and Calendly.

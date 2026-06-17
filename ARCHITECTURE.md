@@ -91,7 +91,9 @@ ASCII fallback:
 | **Front-end app** | `app.js` | Rule engine (retrieval, **7-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security, skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
 | **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). Mock fallback when the SDK/creds are absent. |
-| **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Returns `None` to signal the client to fall back to the rule engine. |
+| **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Formats retrieved context as either sanas.ai pages (inline-linked) or **uploaded documents** (cited by filename). Returns `None` to signal the client to fall back to the rule engine. |
+| **Site retrieval** | `server/webindex.py` + `web_index.json` | Lexical (TF) top-k over the crawled sanas.ai/help.sanas.ai index; intent-biased `prefer=`. |
+| **Document RAG** | `server/doc_index.py` + `rag_store.json` | Parses uploaded PDF/DOCX/TXT/MD, chunks (~2 kB), lexically indexes (same scoring as the site), **persists to disk**; `_retrieve()` in `main.py` merges doc hits ahead of site pages for grounding. |
 | **ASR** | `server/asr.py` | faster-whisper transcription + a from-scratch word-level WER. Optional dependency. |
 | **Golden evals** | `evals/` | Loads the real `app.js` engine under jsdom and asserts guardrails, persona routing, recommendations, voice rules; static invariants on the LLM system prompt. CI gate. |
 
@@ -107,6 +109,9 @@ ASCII fallback:
 | `GET` | `/api/models` | Model list + metadata + feature tabs (SE / NC real; Accent / Language flagged n/a). |
 | `POST` | `/api/process` | Upload audio → ffmpeg decode → ingress probe → SDK `ProcessSamples` → WAV back. Timings/probe in `X-Sanas-*` headers; clip capped at `SAN_MAX_CLIP_S`. |
 | `POST` | `/api/asr` | Transcribe before/after (+ optional clean reference) → recognition confidence and true WER delta. |
+| `POST` | `/api/rag/upload` | **Document RAG.** Upload PDF/DOCX/TXT/MD → parse + chunk + index (persisted) → `{doc_id, name, chunks, total_docs}`. |
+| `GET` | `/api/rag/docs` | List indexed documents (name, chunk + char counts). |
+| `POST` | `/api/rag/clear` | Wipe the document store. |
 | `WS` | `/api/stream` | **Live mic.** Bidirectional int16 PCM frames through a persistent processor; JSON control (`model`, `enabled`); bypass echoes input. |
 | `GET` | `/` , `/{index.html,app.js,styles.css}` | Serve the front-end (no-cache; all-list only). |
 
@@ -336,11 +341,37 @@ sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query
    persona=data_scientist → prefer="/science" → science articles float to the top
 ```
 
+### Document RAG (`server/doc_index.py`)
+A user uploads a file (`POST /api/rag/upload`); `doc_index.extract_text()` parses it
+(pypdf / python-docx / plain decode + HTML strip), `_chunk()` splits it into ~2 kB blocks
+on paragraph/sentence boundaries, and each chunk is lexically indexed with the **same
+term-frequency scoring as the site** so the two result sets are directly comparable. The
+store is written to `server/rag_store.json` and **shared across sessions** (survives
+restarts; git-ignored as it may hold customer content). `main.py`'s `_retrieve()` runs on
+every chat turn and **merges** uploaded-doc hits (kind `doc`) ahead of site pages (kind
+`web`); `llm.py` formats docs as the user's priority material (cited by filename, no URL)
+and the UI shows them as non-link **"from your documents"** chips. A near-zero match is
+dropped (`min_score`) so an irrelevant doc isn't forced into context.
+
+```
+upload ─► doc_index.ingest(parse→chunk→index) ─► rag_store.json (disk, cross-session)
+/api/chat[/stream]:  _retrieve() = doc_index.search(q) + webindex.search(q)  ─►  llm.chat(context=merged)
+```
+
+### Page-context awareness (`app.js`)
+On first open, Sani infers the persona from the page: `?persona=` param → section in
+view (`IntersectionObserver` over `[data-persona]` sections) → URL `#hash` → `help.` host
+→ *Just looking*. The persona sets the dropdown, header register, tailored opening +
+suggestions, and the default ROI model (Telco → churn/ARPU, else contact-center). An
+explicit dropdown pick always wins.
+
 ### File-map additions
 ```
 server/twilio_routes.py   # Twilio voice: IVR, dial-in, media bridge, DTMF model switch
 server/webindex.py        # lexical retrieval over the indexed site
 server/web_index.json     # indexed sanas.ai content (public; regenerate with the script)
+server/doc_index.py       # document RAG: parse/chunk/index uploaded PDF/DOCX/TXT/MD
+server/rag_store.json     # persisted uploaded-doc store (runtime data; git-ignored)
 scripts/index_site.py     # crawler → web_index.json
 TWILIO_SETUP.md           # go-live checklist for the telephony paths
 ```

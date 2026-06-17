@@ -52,6 +52,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 import asr  # noqa: E402  (after dotenv load)
+import doc_index  # noqa: E402
 import llm  # noqa: E402
 import webindex  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
@@ -95,6 +96,8 @@ def health() -> JSONResponse:
     h["asr_available"] = asr.available()
     h["asr_model"] = asr.MODEL_NAME if asr.available() else None
     h["web_index"] = webindex.count()
+    h["rag_docs"] = doc_index.count()
+    h["rag_chunks"] = doc_index.chunk_count()
     return JSONResponse(h)
 
 
@@ -128,6 +131,18 @@ def _prefer(persona: str | None, query: str = "") -> str | None:
     return None
 
 
+def _retrieve(persona: str | None, q: str, k: int = 3) -> list[dict]:
+    """Ground a chat turn in BOTH corpora: the user's uploaded documents (RAG)
+    and the crawled sanas.ai site. Uploaded-doc hits lead — they're the user's
+    own material — then site pages fill the rest. Each item keeps a 'kind'
+    ('doc' | 'web') so the LLM and UI can label the source correctly."""
+    docs = doc_index.search(q, k=2) if doc_index.count() else []
+    web = webindex.search(q, k=k, prefer=_prefer(persona, q))
+    for w in web:
+        w.setdefault("kind", "web")
+    return (docs + web)[:k + len(docs)]
+
+
 class ChatTurn(BaseModel):
     role: str
     content: str
@@ -150,13 +165,14 @@ def chat(req: ChatReq) -> JSONResponse:
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
     _q = _last_user(msgs)
-    sources = webindex.search(_q, k=3, prefer=_prefer(req.persona, _q))
+    sources = _retrieve(req.persona, _q)
     text = llm.chat(msgs, req.persona, req.skeptic, context=sources)
     return JSONResponse({
         "text": text,
         "mode": "llm" if text else "fallback",
         "model": llm.MODEL if text else None,
-        "sources": [{"title": s["title"], "url": s["url"]} for s in sources],
+        "sources": [{"title": s["title"], "url": s["url"], "kind": s.get("kind", "web")}
+                    for s in sources],
     })
 
 
@@ -171,8 +187,9 @@ def chat_stream(req: ChatReq):
     if not msgs:
         raise HTTPException(status_code=400, detail="No messages")
     _q = _last_user(msgs)
-    sources = webindex.search(_q, k=3, prefer=_prefer(req.persona, _q))
-    src_hdr = json.dumps([{"title": s["title"], "url": s["url"]} for s in sources])  # ASCII, one line
+    sources = _retrieve(req.persona, _q)
+    src_hdr = json.dumps([{"title": s["title"], "url": s["url"], "kind": s.get("kind", "web")}
+                          for s in sources])  # ASCII, one line
     if not llm.available():
         return Response(content=b"", media_type="text/plain",
                         headers={"X-San-Mode": "fallback", "X-San-Sources": src_hdr,
@@ -320,6 +337,41 @@ async def process(file: UploadFile = File(...), model: str | None = None):
         "Access-Control-Expose-Headers": "*",
     }
     return Response(content=wav, media_type="audio/wav", headers=headers)
+
+
+_RAG_EXTS = (".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".text")
+
+
+@app.post("/api/rag/upload")
+async def rag_upload(file: UploadFile = File(...)) -> JSONResponse:
+    """Ingest an unstructured document (PDF / DOCX / TXT / MD) so Sani can answer
+    grounded in it. Parsed, chunked, and persisted to disk; shared across sessions."""
+    name = file.filename or ""
+    if not name.lower().endswith(_RAG_EXTS):
+        raise HTTPException(status_code=415,
+                            detail="Unsupported type. Upload PDF, DOCX, TXT, or MD.")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large")
+    try:
+        info = doc_index.ingest(name, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse document: {e}")
+    return JSONResponse({"ok": True, **info})
+
+
+@app.get("/api/rag/docs")
+def rag_docs() -> JSONResponse:
+    return JSONResponse({"docs": doc_index.list_docs(), "chunks": doc_index.chunk_count()})
+
+
+@app.post("/api/rag/clear")
+def rag_clear() -> JSONResponse:
+    return JSONResponse({"ok": True, "removed": doc_index.clear()})
 
 
 @app.post("/api/asr")
