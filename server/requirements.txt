@@ -4,3 +4,4 @@ python-multipart==0.0.20
 numpy==1.26.4
 anthropic==0.69.0
 faster-whisper==1.0.3
+requests==2.32.3

@@ -279,8 +279,8 @@ async def twilio_voice(request: Request) -> Response:
         body = _twiml_human(model)
     elif mode == "sanas":
         body = _twiml_sanas_demo(model)
-    elif mode == "demo":          # guided voice agent that walks through every model
-        body = _twiml_demo_step(0, intro=True)
+    elif mode == "demo":          # guided voice agent: capture a dialog, replay it through every model
+        body = _twiml_demo_capture()
     elif mode == "ivr":
         body = _twiml_ivr(model)
     else:
@@ -380,8 +380,10 @@ async def twilio_recording(call_sid: str = "") -> Response:
                              "Access-Control-Expose-Headers": "*"})
 
 
-# ---- Guided voice-agent demo: walk the caller through every Sanas model ------
-# Speech-primary control (faster-whisper on the live line) with keypad fallback.
+# ---- Guided voice-agent demo: capture a dialog, then replay it through every model -
+# Phase 1 captures the caller's voice (ends on a spoken "done" via faster-whisper,
+# silence, keypad, or a cap). Phase 2 replays that one clip through each model in real
+# time so they compare identical audio. Ends asking if they'd like a Sanas callback.
 DEMO_SEQUENCE = [
     ("AGENTIC_VI_GT_NC", "Noise Cancellation for telephony"),
     ("SE2.2",            "Speech Enhancement"),
@@ -391,23 +393,32 @@ DEMO: dict[str, dict] = {}    # call_sid -> {"goto": "next"|"agent"}
 LEADS: list[dict] = []        # callback requests captured at the end of the demo
 
 
-def _demo_intro() -> str:
-    return ('<Say>Welcome to the Sanas live model demo. I will play your own voice through each '
-            'of our models so you can hear the difference. After each prompt, speak a sentence — '
-            'you will hear your raw line first, then the same audio cleaned by Sanas. '
-            'Just say "next" to move on, "repeat" to hear it again, or "agent" to talk to a person.</Say>')
+# Playback order: the caller's own dialog, then that same clip through each model.
+PLAY_ORDER = [("raw", "your original recording")] + DEMO_SEQUENCE
 
 
-def _twiml_demo_step(i: int, intro: bool = False) -> str:
-    if i >= len(DEMO_SEQUENCE):
-        return _twiml_demo_outro()
-    model, label = DEMO_SEQUENCE[i]
-    stream = _stream_xml("/api/twilio/demo", {"model": model, "i": str(i)})
-    nxt = escape(f"{PUBLIC_BASE}/api/twilio/demo-step?i={i + 1}")
+def _twiml_demo_capture() -> str:
+    """Phase 1 — the agent asks the caller to talk, and we capture that dialog once."""
+    stream = _stream_xml("/api/twilio/demo-capture", {})
+    play0 = escape(f"{PUBLIC_BASE}/api/twilio/demo-play?i=0")
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
-            f'{_demo_intro() if intro else ""}'
-            f'<Say>Model {i + 1} of {len(DEMO_SEQUENCE)}: {escape(label)}. Speak now — you will hear '
-            'it raw first, then with Sanas. Say "next" when you are ready.</Say>'
+            '<Say>Welcome to the Sanas live demo. First, I want to capture your voice in your real '
+            'environment so I can play it back through each model. After the tone, tell me about your '
+            'setup — where you take calls and what the background sounds like — then say a sentence or '
+            'two you would say to a customer. Say "done", or press pound, when you finish.</Say>'
+            f'<Connect>{stream}</Connect>'
+            f'<Redirect>{play0}</Redirect></Response>')
+
+
+def _twiml_demo_play(i: int) -> str:
+    """Phase 2 — replay the captured dialog through item i of PLAY_ORDER, in real time."""
+    if i >= len(PLAY_ORDER):
+        return _twiml_demo_outro()
+    model, label = PLAY_ORDER[i]
+    stream = _stream_xml("/api/twilio/demo-play-ws", {"model": model, "i": str(i)})
+    nxt = escape(f"{PUBLIC_BASE}/api/twilio/demo-play?i={i + 1}")
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'<Say>{i + 1} of {len(PLAY_ORDER)}: {escape(label)}. Press 1 to skip ahead.</Say>'
             f'<Connect>{stream}</Connect>'
             f'<Redirect>{nxt}</Redirect></Response>')
 
@@ -421,19 +432,19 @@ def _twiml_demo_outro() -> str:
             f'</Gather><Redirect>{action}</Redirect></Response>')
 
 
-@router.api_route("/api/twilio/demo-step", methods=["GET", "POST"])
-async def twilio_demo_step(request: Request) -> Response:
+@router.api_route("/api/twilio/demo-play", methods=["GET", "POST"])
+async def twilio_demo_play(request: Request) -> Response:
     qp = dict(request.query_params)
     form = {}
     if request.method == "POST":
         try: form = dict(await request.form())
         except Exception: pass
     sid = form.get("CallSid") or qp.get("CallSid") or ""
-    if sid and DEMO.get(sid, {}).get("goto") == "agent":   # caller asked for a person mid-demo
+    if sid and DEMO.get(sid, {}).get("goto") == "agent":   # caller asked for a person
         DEMO.pop(sid, None)
         return Response(_twiml_human(SANAS_MODEL), media_type="application/xml")
     i = int(qp.get("i") or form.get("i") or 0)
-    return Response(_twiml_demo_step(i), media_type="application/xml")
+    return Response(_twiml_demo_play(i), media_type="application/xml")
 
 
 @router.post("/api/twilio/demo-callback")
@@ -470,115 +481,63 @@ async def twilio_demo_lead(request: Request) -> Response:
                     'Goodbye.</Say><Hangup/></Response>', media_type="application/xml")
 
 
-@router.websocket("/api/twilio/demo")
-async def twilio_demo(ws: WebSocket):
-    """One model segment of the guided demo: loops the caller's audio through the model
-    (raw for the first ~5s, then Sanas, with a beep between), advances on a spoken
-    command (faster-whisper) or keypad, and closes so the next TwiML step runs."""
-    import asyncio, time
-    try:
-        import asr
-    except Exception:
-        asr = None
+@router.websocket("/api/twilio/demo-capture")
+async def twilio_demo_capture(ws: WebSocket):
+    """Phase 1 — capture the caller's spoken dialog once (8 kHz PCM), ending on a
+    spoken 'done' (faster-whisper), trailing silence, a keypad press, or a ~32s cap.
+    Stores it on DEMO[call_sid]['pcm'] for the playback phase."""
+    import asyncio
+    try: import asr
+    except Exception: asr = None
     await ws.accept()
     loop = asyncio.get_running_loop()
-    model = ws.query_params.get("model") or SANAS_MODEL
-    stream_sid = call_sid = None
-    sess = None
-    residual = np.zeros(0, dtype=np.int16)
-    frame = int(TW_SR * 0.02)
-    state = {"on": False, "frames": 0, "cmd": None}     # on=Sanas vs raw; cmd set by ASR task
-    cmd_buf: list = []
-    cmd_busy = {"v": False}
-    RAW_FRAMES, MAX_FRAMES, CMD_EVERY = 250, 1800, 130   # ~5s raw, ~36s cap, ~2.6s ASR window
+    call_sid = None
+    pcm: list = []                 # int16 @ 8k
+    asr_buf: list = []
+    busy = {"v": False}; done = {"v": False}
+    frames = spoke = silence = 0
+    MAX, SILENCE_HOLD, CMD_EVERY = 1600, 140, 150   # ~32s cap, ~2.8s trailing silence, ~3s ASR window
 
-    async def beep(freq=1320):
-        if not (stream_sid and _AUDIOOP):
+    async def check_done(samples):
+        if busy["v"] or not (asr and asr.available()):
             return
-        n = int(TW_SR * 0.18); win = np.hanning(n)
-        pcm = (np.sin(2 * np.pi * freq * np.arange(n) / TW_SR) * 7000 * win).astype(np.int16)
-        await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
-                                       "media": {"payload": base64.b64encode(audioop.lin2ulaw(pcm.tobytes(), 2)).decode()}}))
-
-    async def check_cmd(samples):
-        if cmd_busy["v"] or not (asr and asr.available()):
-            return
-        cmd_busy["v"] = True
+        busy["v"] = True
         try:
             res = await loop.run_in_executor(None, asr.transcribe, samples, TW_SR)
             txt = ((res or {}).get("text") or "").lower()
-            if any(w in txt for w in ("next", "continue", "move on", "skip", "go on")): state["cmd"] = "next"
-            elif "repeat" in txt or "again" in txt: state["cmd"] = "repeat"
-            elif any(w in txt for w in ("agent", "human", "person", "someone", "representative", "sales")): state["cmd"] = "agent"
+            if any(w in txt for w in ("done", "that's it", "thats it", "finished", "i'm done", "im done", "go ahead", "that is it")):
+                done["v"] = True
         except Exception:
             pass
         finally:
-            cmd_busy["v"] = False
-
-    def echo(p): return ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": p}}))
+            busy["v"] = False
 
     try:
         while True:
             msg = json.loads(await ws.receive_text())
             ev = msg.get("event")
             if ev == "start":
-                cp = msg["start"].get("customParameters") or {}
-                model = cp.get("model") or model
-                stream_sid = msg["start"]["streamSid"]
-                call_sid = msg["start"].get("callSid") or stream_sid
-                if sanas_client.client.mode == "real" and _AUDIOOP:
-                    try:
-                        sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, TW_SR)
-                        frame = sess.frame_samples
-                    except Exception:
-                        sess = None
+                call_sid = msg["start"].get("callSid") or msg["start"]["streamSid"]
             elif ev == "dtmf":
-                d = (msg.get("dtmf") or {}).get("digit")
-                if d == "1": state["cmd"] = "next"
-                elif d == "2": state["cmd"] = "repeat"
-                elif d in ("0", "9"): state["cmd"] = "agent"
+                if (msg.get("dtmf") or {}).get("digit") in ("#", "1", "0"):
+                    done["v"] = True
             elif ev == "media":
-                pcm = audioop.ulaw2lin(base64.b64decode(msg["media"]["payload"]), 2)
-                ints = np.frombuffer(pcm, dtype=np.int16)
-                # collect inbound audio for the ASR command window
+                if not _AUDIOOP:
+                    continue
+                ints = np.frombuffer(audioop.ulaw2lin(base64.b64decode(msg["media"]["payload"]), 2), dtype=np.int16)
+                pcm.append(ints)
+                frames += 1
+                amp = int(np.abs(ints.astype(np.int32)).mean()) if ints.size else 0
+                if amp > 400:
+                    spoke += 1; silence = 0
+                elif spoke > 25:
+                    silence += 1
                 if asr and asr.available():
-                    cmd_buf.append(ints)
-                state["frames"] += 1
-                if not state["on"] and state["frames"] >= RAW_FRAMES:
-                    state["on"] = True
-                    await beep(_TONE_HZ.get(model, 1320))      # raw → Sanas transition cue
-                # fire an ASR command check on a rolling window
-                if asr and asr.available() and state["frames"] % CMD_EVERY == 0 and cmd_buf:
-                    snap = np.concatenate(cmd_buf)[-TW_SR * 3:]
-                    cmd_buf.clear()
-                    asyncio.create_task(check_cmd(snap))
-                # play raw or Sanas
-                if sess is None or not _AUDIOOP or not state["on"]:
-                    await echo(msg["media"]["payload"])
-                else:
-                    buf = np.concatenate([residual, ints]); n = len(buf) // frame
-                    if n == 0:
-                        residual = buf
-                    else:
-                        chunk, residual = buf[:n * frame], buf[n * frame:]
-                        floats = chunk.astype(np.float32) / 32768.0
-
-                        def run():
-                            out = []
-                            for i in range(n):
-                                out.extend(sess.process(floats[i * frame:(i + 1) * frame].tolist()))
-                            return out
-                        out = await loop.run_in_executor(None, run)
-                        arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
-                        await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid,
-                                                       "media": {"payload": base64.b64encode(audioop.lin2ulaw(arr.tobytes(), 2)).decode()}}))
-                # act on a command (or hit the time cap)
-                if state["cmd"] == "repeat":
-                    state["cmd"] = None; state["on"] = False; state["frames"] = 0
-                    await beep(660)
-                elif state["cmd"] in ("next", "agent") or state["frames"] >= MAX_FRAMES:
-                    if state["cmd"] == "agent":
-                        DEMO[call_sid] = {"goto": "agent"}
+                    asr_buf.append(ints)
+                    if frames % CMD_EVERY == 0 and asr_buf:
+                        snap = np.concatenate(asr_buf)[-TW_SR * 4:]; asr_buf.clear()
+                        asyncio.create_task(check_done(snap))
+                if done["v"] or frames >= MAX or (spoke > 50 and silence >= SILENCE_HOLD):
                     break
             elif ev == "stop":
                 break
@@ -587,9 +546,86 @@ async def twilio_demo(ws: WebSocket):
     except Exception:
         pass
     finally:
-        if sess is not None:
-            try: await loop.run_in_executor(None, sess.close)
-            except Exception: pass
+        if call_sid:
+            buf = np.concatenate(pcm) if pcm else np.zeros(0, dtype=np.int16)
+            DEMO.setdefault(call_sid, {})["pcm"] = buf.astype(np.int16).tobytes()   # int16 @ 8k
+
+
+@router.websocket("/api/twilio/demo-play-ws")
+async def twilio_demo_play_ws(ws: WebSocket):
+    """Phase 2 — replay the captured dialog through one model (or 'raw'), in real time,
+    to the caller. Streams 20 ms μ-law frames; a keypad press skips to the next item."""
+    import asyncio
+    await ws.accept()
+    loop = asyncio.get_running_loop()
+    model = ws.query_params.get("model") or SANAS_MODEL
+    stream_sid = call_sid = None
+    skip = {"v": False}
+    try:
+        while True:                                 # wait for start to learn the stream + call
+            msg = json.loads(await ws.receive_text())
+            if msg.get("event") == "start":
+                cp = msg["start"].get("customParameters") or {}
+                model = cp.get("model") or model
+                stream_sid = msg["start"]["streamSid"]
+                call_sid = msg["start"].get("callSid") or stream_sid
+                break
+            if msg.get("event") == "stop":
+                return
+        raw = DEMO.get(call_sid, {}).get("pcm")
+        if not raw or not _AUDIOOP:
+            return
+        buf = np.frombuffer(raw, dtype=np.int16)
+
+        async def reader():                          # keypad → skip to next item
+            try:
+                while True:
+                    m = json.loads(await ws.receive_text())
+                    if m.get("event") == "stop" or (m.get("event") == "dtmf" and (m.get("dtmf") or {}).get("digit") in ("1", "#", "0")):
+                        skip["v"] = True
+            except Exception:
+                skip["v"] = True
+        rtask = asyncio.create_task(reader())
+
+        async def send8k(frame_int16):
+            payload = base64.b64encode(audioop.lin2ulaw(frame_int16.astype(np.int16).tobytes(), 2)).decode()
+            await ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": payload}}))
+
+        if model == "raw" or sanas_client.client.mode != "real":
+            for off in range(0, len(buf), 160):       # play the original at real time
+                if skip["v"]: break
+                await send8k(buf[off:off + 160]); await asyncio.sleep(0.02)
+        else:
+            msr = sanas_client.MODEL_SAMPLE_RATES.get(model, 16000)
+            up, _st = audioop.ratecv(buf.tobytes(), 2, 1, TW_SR, msr, None)
+            floats = np.frombuffer(up, dtype=np.int16).astype(np.float32) / 32768.0
+            try:
+                sess = await loop.run_in_executor(None, sanas_client.client.create_stream, model, msr)
+                fr = sess.frame_samples
+            except Exception:
+                sess = None
+            if sess is None:                          # fall back to the raw clip
+                for off in range(0, len(buf), 160):
+                    if skip["v"]: break
+                    await send8k(buf[off:off + 160]); await asyncio.sleep(0.02)
+            else:
+                down_state = None
+                for i in range(len(floats) // fr):    # process + stream one model frame at a time
+                    if skip["v"]: break
+                    out = await loop.run_in_executor(None, sess.process, floats[i * fr:(i + 1) * fr].tolist())
+                    arr = (np.clip(np.asarray(out, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+                    down, down_state = audioop.ratecv(arr.tobytes(), 2, 1, msr, TW_SR, down_state)
+                    d = np.frombuffer(down, dtype=np.int16)
+                    if d.size:
+                        await send8k(d)
+                    await asyncio.sleep(0.02)
+                try: await loop.run_in_executor(None, sess.close)
+                except Exception: pass
+        rtask.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
 
 
 # ---- Voice access token for the browser SDK (hand-signed JWT) ---------------
