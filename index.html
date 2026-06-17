@@ -145,10 +145,8 @@
       <button class="upload-btn" id="sanUpload" title="Upload a clip (≤2 min)" aria-label="Upload an audio clip">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 21h14"/></svg>
       </button>
+      <!-- document upload lives in the admin (⌗) panel, not the composer -->
       <input type="file" id="sanDocFile" accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain" hidden />
-      <button class="upload-btn" id="sanDocUpload" title="Add a document (PDF, DOCX, TXT, MD) — admin only" aria-label="Add a document for Sani to reference (admin)" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
-      </button>
       <textarea id="sanInput" rows="1" placeholder="Tell Sani what you’re trying to solve…" aria-label="Message Sani"></textarea>
       <button class="send-btn" id="sanSend" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>

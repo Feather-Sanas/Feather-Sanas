@@ -2422,7 +2422,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // upload — audio clip (process through a model) and documents (RAG grounding)
   $('#sanUpload').addEventListener('click', () => $('#sanFile').click());
   $('#sanFile').addEventListener('change', e => handleUpload(e.target.files[0]));
-  $('#sanDocUpload').addEventListener('click', () => $('#sanDocFile').click());
+  // document upload is triggered from the admin (⌗) panel, not a composer button
   $('#sanDocFile').addEventListener('change', e => { handleDocUpload(e.target.files[0]); e.target.value = ''; });
 
   // debug drawer (internal, SSO-gated in production) — also hosts the RAG admin login
