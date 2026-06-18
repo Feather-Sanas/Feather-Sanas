@@ -2292,6 +2292,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // launcher + close
   $('#sanLauncher').addEventListener('click', openPanel);
   $('#sanClose').addEventListener('click', closePanel);
+
+  // light / dark theme toggle (initial theme is set pre-paint by the inline <head> script)
+  document.querySelectorAll('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('sani-theme', next); } catch {}
+    emit({ event: 'theme_set', theme: next });
+  }));
   // hero demo button opens chat into a before/after
   document.querySelectorAll('[data-open-san]').forEach(b =>
     b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Play a before/after'), 300); }));
