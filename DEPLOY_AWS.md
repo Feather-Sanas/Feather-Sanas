@@ -1,5 +1,26 @@
 # Deploying Sani on AWS — single-instance demo
 
+> ## Hosting the front-end on AWS Amplify (the split)
+> **Amplify Hosting can serve the front-end, but not the backend.** Amplify is
+> serverless (static sites + SSR + Lambda); this backend needs a long-running process
+> (native Sanas SDK SIP/RTP, WebSockets, in-memory call state). So:
+>
+> - **Front-end → Amplify Hosting.** Connect the GitHub repo; Amplify uses
+>   [`amplify.yml`](amplify.yml), which publishes only `index.html` / `app.js` /
+>   `styles.css` / `config.js` (never the `server/` source) and bakes the backend
+>   origin into `config.js` from the **`SAN_API_BASE`** env var. Set
+>   `SAN_API_BASE = https://api.your-domain.com` in the Amplify console → App settings →
+>   Environment variables. (No build framework; it's a plain static deploy.)
+> - **Backend → a long-running host** (below): EC2 with `docker-compose`, or
+>   **App Runner / ECS Fargate** from [`server/Dockerfile`](server/Dockerfile). CORS is
+>   already open (`allow_origins=["*"]`), so the Amplify origin reaches it; the live-mic
+>   and Twilio WebSockets connect to `wss://<SAN_API_BASE host>` automatically.
+> - **Twilio** `PUBLIC_BASE_URL` + the TwiML App Voice URL must point at the **backend**
+>   origin (not the Amplify URL) — browser calling dials the backend's `/api/twilio/*`.
+>
+> If you'd rather keep it simple, skip Amplify and serve the front-end from the same
+> EC2 box (the backend already serves the three files) — one origin, `SAN_API_BASE` empty.
+
 A cost-minimized deploy for a **demo that does not scale**: one EC2 instance running
 the backend behind **Caddy** (automatic HTTPS). No load balancer, no NAT gateway, no
 Fargate — those only matter for scaling and are the expensive line items.

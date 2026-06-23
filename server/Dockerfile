@@ -38,7 +38,7 @@ COPY server/main.py server/sanas_client.py server/llm.py server/asr.py \
      server/webindex.py server/doc_index.py server/mailer.py server/twilio_routes.py server/web_index.json ./
 
 # Front-end into a dedicated, publicly-served directory
-COPY index.html styles.css app.js /app/web/
+COPY index.html styles.css app.js config.js /app/web/
 ENV WEB_DIR=/app/web
 
 EXPOSE 8000

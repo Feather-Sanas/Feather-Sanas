@@ -771,7 +771,7 @@ async def stream(ws: WebSocket):
 
 
 # Serve only the front-end files by name — never the backend source, .env, or vendor/.
-_ALLOWED_STATIC = {"index.html", "app.js", "styles.css"}
+_ALLOWED_STATIC = {"index.html", "app.js", "styles.css", "config.js"}
 # no-cache so the browser always revalidates and picks up edits immediately
 _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
