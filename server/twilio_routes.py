@@ -60,11 +60,26 @@ HUMAN = os.getenv("TWILIO_HUMAN_NUMBER")
 API_KEY = os.getenv("TWILIO_API_KEY_SID")
 API_SECRET = os.getenv("TWILIO_API_KEY_SECRET")
 APP_SID = os.getenv("TWILIO_TWIML_APP_SID")
-# Push credential (APNs-VoIP for iOS, FCM for Android) — lets INCOMING and
-# app-to-app (client) calls ring a mobile device. Optional: outgoing PSTN and the
-# in-app Sanas loopback work without it.
+# Push credentials — let INCOMING and app-to-app (client) calls ring a mobile
+# device. iOS needs an APNs-VoIP credential and Android an FCM one, so they're
+# separate SIDs; the token endpoint picks by ?platform=. TWILIO_PUSH_CREDENTIAL_SID
+# is a generic fallback. Optional: outgoing PSTN + the in-app Sanas loopback work
+# without any of these.
 PUSH_CREDENTIAL_SID = os.getenv("TWILIO_PUSH_CREDENTIAL_SID")
+PUSH_CREDENTIAL_SID_IOS = os.getenv("TWILIO_PUSH_CREDENTIAL_SID_IOS")
+PUSH_CREDENTIAL_SID_ANDROID = os.getenv("TWILIO_PUSH_CREDENTIAL_SID_ANDROID")
 PUBLIC_BASE = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+
+
+def _push_cred_for(platform: str | None) -> str | None:
+    """The right push credential SID for a client platform (iOS→APNs, Android→FCM),
+    falling back to the generic one."""
+    p = (platform or "").lower()
+    if p == "ios":
+        return PUSH_CREDENTIAL_SID_IOS or PUSH_CREDENTIAL_SID
+    if p == "android":
+        return PUSH_CREDENTIAL_SID_ANDROID or PUSH_CREDENTIAL_SID
+    return PUSH_CREDENTIAL_SID
 SANAS_MODEL = os.getenv("TWILIO_SANAS_MODEL", "AGENTIC_VI_GT_NC")
 TW_SR = 8000  # Twilio Media Streams are 8 kHz μ-law
 
@@ -79,7 +94,8 @@ def _cfg() -> dict:
         "ivr": bool(PUBLIC_BASE),             # TwiML reachable
         "human_dial": bool(HUMAN),            # a destination to dial
         "sanas_in_call": bool(PUBLIC_BASE) and _AUDIOOP,
-        "push_credential": bool(PUSH_CREDENTIAL_SID),   # incoming / app-to-app can ring a device
+        # incoming / app-to-app can ring a device (any platform credential configured)
+        "push_credential": bool(PUSH_CREDENTIAL_SID or PUSH_CREDENTIAL_SID_IOS or PUSH_CREDENTIAL_SID_ANDROID),
         "public_base": PUBLIC_BASE or None,
         "model": SANAS_MODEL,
         "audioop": _AUDIOOP,
@@ -750,8 +766,9 @@ def twilio_token(request: Request) -> JSONResponse:
     # otherwise mint an ephemeral one. Sanitize to Twilio's client-name charset.
     raw = (request.query_params.get("identity") or "").strip()
     identity = "".join(c for c in raw if c in _IDENTITY_OK)[:121] or f"sani-{int(time.time())}"
-    return JSONResponse({"ok": True, "token": _voice_token(identity, PUSH_CREDENTIAL_SID),
-                         "identity": identity, "push": bool(PUSH_CREDENTIAL_SID)})
+    push = _push_cred_for(request.query_params.get("platform"))
+    return JSONResponse({"ok": True, "token": _voice_token(identity, push),
+                         "identity": identity, "push": bool(push)})
 
 
 # ---- Media Streams WS: call audio → Sanas → back into the call --------------
