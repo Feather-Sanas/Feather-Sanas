@@ -60,6 +60,10 @@ HUMAN = os.getenv("TWILIO_HUMAN_NUMBER")
 API_KEY = os.getenv("TWILIO_API_KEY_SID")
 API_SECRET = os.getenv("TWILIO_API_KEY_SECRET")
 APP_SID = os.getenv("TWILIO_TWIML_APP_SID")
+# Push credential (APNs-VoIP for iOS, FCM for Android) — lets INCOMING and
+# app-to-app (client) calls ring a mobile device. Optional: outgoing PSTN and the
+# in-app Sanas loopback work without it.
+PUSH_CREDENTIAL_SID = os.getenv("TWILIO_PUSH_CREDENTIAL_SID")
 PUBLIC_BASE = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
 SANAS_MODEL = os.getenv("TWILIO_SANAS_MODEL", "AGENTIC_VI_GT_NC")
 TW_SR = 8000  # Twilio Media Streams are 8 kHz μ-law
@@ -75,6 +79,7 @@ def _cfg() -> dict:
         "ivr": bool(PUBLIC_BASE),             # TwiML reachable
         "human_dial": bool(HUMAN),            # a destination to dial
         "sanas_in_call": bool(PUBLIC_BASE) and _AUDIOOP,
+        "push_credential": bool(PUSH_CREDENTIAL_SID),   # incoming / app-to-app can ring a device
         "public_base": PUBLIC_BASE or None,
         "model": SANAS_MODEL,
         "audioop": _AUDIOOP,
@@ -126,6 +131,20 @@ def _twiml_dial(to: str, model: str | None = None) -> str:
     # record both legs so the call can be fetched + analyzed afterward
     return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
             f'{fork}<Dial{caller} record="record-from-answer-dual"><Number>{escape(to)}</Number></Dial></Response>')
+
+
+def _twiml_client(identity: str, model: str | None = None) -> str:
+    # App-to-app (WebRTC): dial another REGISTERED Voice SDK client by identity, and
+    # fork the audio to our Sanas WS (<Start><Stream>) so the selected model runs and
+    # the mid-call on/off applies — same shape as _twiml_dial, client target instead
+    # of a phone number. The callee only rings if a push credential is configured
+    # (TWILIO_PUSH_CREDENTIAL_SID) and it registered its device token.
+    if not identity:
+        return _twiml_sanas_demo(model)   # nobody to dial → fall back to the loopback demo
+    fork = (f'<Start>{_stream_xml("/api/twilio/media", {"model": model or SANAS_MODEL})}</Start>'
+            if (PUBLIC_BASE and _AUDIOOP) else '')
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'{fork}<Dial record="record-from-answer-dual"><Client>{escape(identity)}</Client></Dial></Response>')
 
 
 # ---- true in-path bridge: two <Connect><Stream> legs joined on our server -----
@@ -275,6 +294,8 @@ async def twilio_voice(request: Request) -> Response:
         body = _twiml_bridge_callee((params.get("id") or "").strip(), model)
     elif mode == "dial":
         body = _twiml_dial((params.get("To") or "").strip(), model)
+    elif mode == "client":        # app-to-app (WebRTC): dial another SDK client by identity (passed as To)
+        body = _twiml_client((params.get("To") or "").strip(), model)
     elif mode == "human":
         body = _twiml_human(model)
     elif mode == "sanas":
@@ -649,11 +670,14 @@ async def twilio_demo_play_ws(ws: WebSocket):
 
 
 # ---- Voice access token for the browser SDK (hand-signed JWT) ---------------
-def _voice_token(identity: str) -> str:
+def _voice_token(identity: str, push_credential_sid: str | None = None) -> str:
     now = int(time.time())
     header = {"typ": "JWT", "alg": "HS256", "cty": "twilio-fpa;v=1"}
-    grants = {"identity": identity,
-              "voice": {"outgoing": {"application_sid": APP_SID}, "incoming": {"allow": True}}}
+    voice = {"outgoing": {"application_sid": APP_SID}, "incoming": {"allow": True}}
+    if push_credential_sid:
+        # ring incoming / app-to-app calls on the registered mobile device
+        voice["push_credential_sid"] = push_credential_sid
+    grants = {"identity": identity, "voice": voice}
     payload = {"jti": f"{API_KEY}-{now}", "iss": API_KEY, "sub": SID,
                "iat": now, "nbf": now, "exp": now + 3600, "grants": grants}
     seg = lambda o: base64.urlsafe_b64encode(json.dumps(o, separators=(",", ":")).encode()).rstrip(b"=")
@@ -714,13 +738,20 @@ def twilio_debug() -> JSONResponse:
     })
 
 
+_IDENTITY_OK = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
+
+
 @router.get("/api/twilio/token")
-def twilio_token() -> JSONResponse:
+def twilio_token(request: Request) -> JSONResponse:
     if not _cfg()["browser_voice"]:
-        return JSONResponse({"ok": False, "detail": "Browser voice not configured "
+        return JSONResponse({"ok": False, "detail": "Browser/mobile voice not configured "
                              "(need TWILIO_ACCOUNT_SID + API key/secret + TWIML_APP_SID)."}, status_code=200)
-    identity = f"sani-{int(time.time())}"
-    return JSONResponse({"ok": True, "token": _voice_token(identity), "identity": identity})
+    # A mobile client may request a STABLE identity so it can be dialed app-to-app;
+    # otherwise mint an ephemeral one. Sanitize to Twilio's client-name charset.
+    raw = (request.query_params.get("identity") or "").strip()
+    identity = "".join(c for c in raw if c in _IDENTITY_OK)[:121] or f"sani-{int(time.time())}"
+    return JSONResponse({"ok": True, "token": _voice_token(identity, PUSH_CREDENTIAL_SID),
+                         "identity": identity, "push": bool(PUSH_CREDENTIAL_SID)})
 
 
 # ---- Media Streams WS: call audio → Sanas → back into the call --------------
