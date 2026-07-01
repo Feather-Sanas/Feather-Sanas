@@ -24,7 +24,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -55,7 +55,10 @@ import asr  # noqa: E402  (after dotenv load)
 import doc_index  # noqa: E402
 import llm  # noqa: E402
 import mailer  # noqa: E402
+import ratelimit  # noqa: E402  (per-IP rate limit; reads env at import)
+import response_cache  # noqa: E402  (Claude reply cache; reads env at import)
 import webindex  # noqa: E402
+from ratelimit import rate_limit  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
 from twilio_routes import router as twilio_router  # noqa: E402
 
@@ -99,6 +102,8 @@ def health() -> JSONResponse:
     h["web_index"] = webindex.count()
     h["rag_docs"] = doc_index.count()
     h["rag_chunks"] = doc_index.chunk_count()
+    h["response_cache"] = response_cache.info()
+    h["rate_limit"] = ratelimit.info()
     return JSONResponse(h)
 
 
@@ -208,9 +213,11 @@ _INDUSTRY_STORIES = {
 
 
 @app.post("/api/chat")
-def chat(req: ChatReq) -> JSONResponse:
+def chat(req: ChatReq, _rl: None = Depends(rate_limit)) -> JSONResponse:
     """Generate San's reply via Claude. Returns mode='fallback' (text=None)
-    when no API key is configured, so the client uses its rule-based engine."""
+    when no API key is configured, so the client uses its rule-based engine.
+    A repeat question (same persona/skeptic/industry/history/grounding) is served
+    from the response cache with no Claude call."""
     msgs = [{"role": t.role, "content": t.content} for t in req.messages if t.content.strip()]
     # API requires the history to start with a user turn and be non-empty
     while msgs and msgs[0]["role"] != "user":
@@ -219,22 +226,35 @@ def chat(req: ChatReq) -> JSONResponse:
         raise HTTPException(status_code=400, detail="No messages")
     _q = _last_user(msgs)
     sources = _retrieve(req.persona, _q, req.industry)
-    text = llm.chat(msgs, req.persona, req.skeptic, context=sources,
-                    industry=_INDUSTRY_LABEL.get(req.industry))
+    _industry = _INDUSTRY_LABEL.get(req.industry)
+    src_out = [{"title": s["title"], "url": s["url"], "kind": s.get("kind", "web")}
+               for s in sources]
+    # Response cache: identical prompt-shaping inputs -> reuse the reply (no API call).
+    ckey = (response_cache.chat_key(llm.MODEL, req.persona, req.skeptic, _industry, msgs, sources)
+            if (response_cache.enabled() and llm.available()) else None)
+    cached = response_cache.get(ckey) if ckey else None
+    if cached is not None:
+        return JSONResponse({"text": cached, "mode": "llm", "model": llm.MODEL,
+                             "cached": True, "sources": src_out})
+    text = llm.chat(msgs, req.persona, req.skeptic, context=sources, industry=_industry)
+    if text and ckey:
+        response_cache.set(ckey, text)
     return JSONResponse({
         "text": text,
         "mode": "llm" if text else "fallback",
         "model": llm.MODEL if text else None,
-        "sources": [{"title": s["title"], "url": s["url"], "kind": s.get("kind", "web")}
-                    for s in sources],
+        "cached": False,
+        "sources": src_out,
     })
 
 
 @app.post("/api/chat/stream")
-def chat_stream(req: ChatReq):
+def chat_stream(req: ChatReq, _rl: None = Depends(rate_limit)):
     """Stream San's reply token-by-token as plain-text chunks. The X-San-Mode
     response header is 'llm' when streaming real content, 'fallback' (empty body)
-    when no key is configured — the client then uses its rule-based reply."""
+    when no key is configured — the client then uses its rule-based reply. A cache
+    hit (X-San-Cached: 1) replays the stored reply as a stream so the UX is
+    identical; a miss accumulates the streamed text and stores it on completion."""
     msgs = [{"role": t.role, "content": t.content} for t in req.messages if t.content.strip()]
     while msgs and msgs[0]["role"] != "user":
         msgs.pop(0)
@@ -250,16 +270,32 @@ def chat_stream(req: ChatReq):
                                  "Access-Control-Expose-Headers": "*"})
 
     _industry = _INDUSTRY_LABEL.get(req.industry)
+    base_headers = {"X-San-Mode": "llm", "X-Sanas-Model": llm.MODEL,
+                    "X-San-Sources": src_hdr, "Access-Control-Expose-Headers": "*",
+                    "Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+    ckey = (response_cache.chat_key(llm.MODEL, req.persona, req.skeptic, _industry, msgs, sources)
+            if response_cache.enabled() else None)
+    cached = response_cache.get(ckey) if ckey else None
+    if cached is not None:
+        def gen_cached():
+            # replay the stored reply in small chunks so the client renders it
+            # progressively, exactly like a live stream
+            for i in range(0, len(cached), 24):
+                yield cached[i:i + 24]
+        return StreamingResponse(gen_cached(), media_type="text/plain; charset=utf-8",
+                                 headers={**base_headers, "X-San-Cached": "1"})
 
     def gen():
+        parts: list[str] = []
         for delta in llm.chat_stream(msgs, req.persona, req.skeptic, context=sources, industry=_industry):
+            parts.append(delta)
             yield delta
+        full = "".join(parts).strip()
+        if full and ckey:
+            response_cache.set(ckey, full)
 
-    return StreamingResponse(gen(), media_type="text/plain; charset=utf-8",
-                             headers={"X-San-Mode": "llm", "X-Sanas-Model": llm.MODEL,
-                                      "X-San-Sources": src_hdr,
-                                      "Access-Control-Expose-Headers": "*",
-                                      "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(gen(), media_type="text/plain; charset=utf-8", headers=base_headers)
 
 
 # Friendly metadata for the playground. SE + NC families are real SDK models;
@@ -351,7 +387,8 @@ def _ingress_probe(samples: np.ndarray, sr: int) -> dict:
 
 
 @app.post("/api/process")
-async def process(file: UploadFile = File(...), model: str | None = None):
+async def process(file: UploadFile = File(...), model: str | None = None,
+                  _rl: None = Depends(rate_limit)):
     raw = await file.read()
     if len(raw) == 0:
         raise HTTPException(status_code=400, detail="Empty upload")
@@ -458,7 +495,8 @@ _RAG_EXTS = (".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".tex
 
 
 @app.post("/api/rag/upload")
-async def rag_upload(file: UploadFile = File(...), _: None = Depends(require_admin)) -> JSONResponse:
+async def rag_upload(file: UploadFile = File(...), _: None = Depends(require_admin),
+                     __: None = Depends(rate_limit)) -> JSONResponse:
     """Ingest an unstructured document (PDF / DOCX / TXT / MD) so Sani can answer
     grounded in it. Parsed, chunked, and persisted to disk; shared across sessions.
     Admin-only (knowledge-base management); chat retrieval over the docs stays open."""
@@ -642,6 +680,7 @@ async def asr_compare(
     before: UploadFile = File(...),
     after: UploadFile = File(...),
     reference_audio: UploadFile | None = File(None),
+    _rl: None = Depends(rate_limit),
 ):
     """Transcribe before/after audio with a real ASR (faster-whisper).
     If a clean `reference_audio` is supplied (curated scenarios send the clean

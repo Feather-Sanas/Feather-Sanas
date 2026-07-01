@@ -7,3 +7,7 @@ faster-whisper==1.0.3
 requests==2.32.3
 pypdf==5.9.0
 python-docx==1.2.0
+# Optional response-cache backend. Only used when SAN_REDIS_URL is set; the
+# default in-process cache needs no dependency. Shipped so the Redis swap is a
+# config-only change (set SAN_REDIS_URL) with no rebuild. Pure-Python, lazy-imported.
+redis==5.2.1

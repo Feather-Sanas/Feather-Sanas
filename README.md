@@ -65,6 +65,11 @@ docker compose up --build           # → http://localhost:8000 (front-end + /ap
 Without the SDK the backend boots in **mock mode** (a stand-in cleanup, clearly
 labelled by `/api/health` and in the UI) so the whole UX still works.
 
+> **Deploy on AWS:** the same Compose stack runs on a single x86-64 EC2 behind Caddy, with
+> the front-end optionally on Amplify. For the full topology, the AWS service + access list
+> for IT, secrets/SES/ElastiCache hardening, and cost controls, see
+> **[DEPLOY_AWS.md](DEPLOY_AWS.md)**.
+
 > **Auth:** `SANAS_API_KEY` (developer-console key, e.g. `sk_…`) is preferred and takes
 > precedence; account-based `SANAS_ACCOUNT_ID` + `SANAS_ACCOUNT_SECRET` is the fallback.
 >
@@ -110,6 +115,12 @@ otherwise the deterministic rule engine answers (the UI is identical either way)
   confidence — enforced in the prompt.
 - **Model** — `SAN_LLM_MODEL` (default `claude-sonnet-4-6`; set `claude-opus-4-8` for
   max quality). Calls are resilient: any API error falls back to the rule engine.
+- **Cost controls** — Claude is the main running cost, so the backend ships three levers
+  (on by default): **prompt caching** (two breakpoints — the shared system block + the
+  per-persona block), a **response cache** that serves repeat questions with no API call
+  (`server/response_cache.py`; in-process, or shared via `SAN_REDIS_URL` → ElastiCache), and
+  a **per-IP rate limit** on the chat/audio endpoints (`server/ratelimit.py`). See
+  [DEPLOY_AWS.md §5](DEPLOY_AWS.md) and [`server/.env.example`](server/.env.example).
 
 ## Curated audio (the Audio Showroom)
 

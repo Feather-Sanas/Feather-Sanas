@@ -235,6 +235,12 @@ before + after (+ optional clean reference) ──► POST /api/asr
 | `SAN_MAX_CLIP_S` | Upload length cap (default 30s; real-time engine ≈ clip duration). |
 | `ANTHROPIC_API_KEY` | Enables Claude chat; absent → rule-engine fallback. |
 | `SAN_LLM_MODEL` | Chat model (`claude-sonnet-4-6` default; `claude-opus-4-8` for max quality). |
+| `SAN_CACHE` / `SAN_CACHE_TTL` / `SAN_REDIS_URL` | Response cache (Claude reply reuse): on by default, in-process; set `SAN_REDIS_URL` to share it via ElastiCache/Redis. |
+| `SAN_RATE_LIMIT` / `SAN_RATE_WINDOW` | Per-IP rate limit on the expensive endpoints (default 60/60s; `0`/`off` disables). |
+
+> **Cost & scale:** prompt caching (two breakpoints), the response cache, and the per-IP
+> rate limit keep the Claude bill down; the in-process defaults swap to ElastiCache/Redis for
+> multi-instance. Full AWS deployment + the IT service/access list live in [DEPLOY_AWS.md](DEPLOY_AWS.md).
 
 ---
 
@@ -258,6 +264,7 @@ not faked).
 - **Golden evals:** `npm install && npm run eval` (16 checks; also CI via `.github/workflows/evals.yml`).
 - **ASR smoke test:** `server/.venv310/bin/python scripts/asr_smoke.py [clip.wav] [--reference "…"] [--process]`.
 - **Deploy (Linux):** `docker compose up --build` (Ubuntu 22.04 x86-64 image installs the SDK tarball).
+- **Deploy (AWS):** Amplify (front-end) + a single x86-64 EC2 running this Compose stack behind Caddy; ElastiCache/SES/Secrets Manager are the production add-ons. Full guide + the AWS service/access list for IT: [DEPLOY_AWS.md](DEPLOY_AWS.md).
 - **Mock mode:** without the SDK/creds the backend boots in mock mode (clearly labelled by `/api/health`).
 
 ---

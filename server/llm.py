@@ -172,9 +172,16 @@ def _system_blocks(persona: str | None, skeptic: float, context: list[dict] | No
         persona_block += (f" The user's industry is {industry} — frame examples, use cases, and ROI "
                           f"for that vertical, and prefer the matching sanas.ai industry page in the "
                           f"retrieved context. Don't invent vertical-specific stats you can't ground.")
+    # Two cache breakpoints (max 4/request): the big SHARED_SYSTEM block caches on
+    # its own — shared across ALL personas — and the persona block adds a second
+    # breakpoint so a given persona (with its skeptic/industry suffix) reuses the
+    # system+persona prefix across turns and across users. The retrieved context
+    # below is appended AFTER both breakpoints because it varies per turn and must
+    # stay uncached. (Caching is a prefix match — anything after a breakpoint that
+    # changes invalidates only what follows it.)
     blocks = [
         {"type": "text", "text": SHARED_SYSTEM, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": persona_block},
+        {"type": "text", "text": persona_block, "cache_control": {"type": "ephemeral"}},
     ]
     if context:
         # live retrieval — keep AFTER the cached prefix (it varies per turn). Two
