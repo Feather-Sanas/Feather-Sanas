@@ -13,6 +13,17 @@ This is the production reference for running Sani on AWS. It has two layers:
 > backend host (EC2, Fargate, App Runner) must be **x86-64 / linux/amd64**, never Graviton
 > (arm64). The front-end is static and architecture-agnostic.
 
+> **Two ways to run this:**
+> - **Terraform (recommended — automated).** [`infra/aws/`](infra/aws/) provisions the whole
+>   stack: VPC + x86-64 EC2 + Elastic IP behind Caddy, Secrets Manager (the `server/.env`),
+>   S3 (the Sanas SDK tarball), Route 53 DNS, Amplify (front-end), SES (email), and
+>   least-privilege IAM + SSM. Fill in
+>   [`infra/aws/terraform.tfvars.example`](infra/aws/terraform.tfvars.example) and follow
+>   [`infra/aws/README.md`](infra/aws/README.md). The sections below are the reference for
+>   **what that module builds and why.**
+> - **By hand.** The step-by-step runbook in this document (§3 onward) — use it to understand
+>   the pieces, or to deploy without Terraform.
+
 ---
 
 ## 1. The shape, and why
