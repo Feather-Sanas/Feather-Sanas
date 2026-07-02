@@ -39,7 +39,7 @@ import urllib.request
 from xml.sax.saxutils import escape
 
 import numpy as np
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 
 try:
@@ -49,6 +49,7 @@ except Exception:
     audioop = None  # type: ignore
     _AUDIOOP = False
 
+import auth
 import sanas_client
 
 router = APIRouter()
@@ -96,6 +97,9 @@ def _cfg() -> dict:
         "sanas_in_call": bool(PUBLIC_BASE) and _AUDIOOP,
         # incoming / app-to-app can ring a device (any platform credential configured)
         "push_credential": bool(PUSH_CREDENTIAL_SID or PUSH_CREDENTIAL_SID_IOS or PUSH_CREDENTIAL_SID_ANDROID),
+        # mobile sign-in: when required, /api/twilio/token needs a session bearer
+        "auth_required": auth.required(),
+        "auth_domain": auth.domain(),
         "public_base": PUBLIC_BASE or None,
         "model": SANAS_MODEL,
         "audioop": _AUDIOOP,
@@ -758,7 +762,9 @@ _IDENTITY_OK = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567
 
 
 @router.get("/api/twilio/token")
-def twilio_token(request: Request) -> JSONResponse:
+def twilio_token(request: Request, _a: str | None = Depends(auth.require_sani_auth)) -> JSONResponse:
+    # _a: enforces a valid @<domain> session bearer when SANI_AUTH_REQUIRED is on;
+    # a no-op otherwise (web app + unauthenticated mobile keep working).
     if not _cfg()["browser_voice"]:
         return JSONResponse({"ok": False, "detail": "Browser/mobile voice not configured "
                              "(need TWILIO_ACCOUNT_SID + API key/secret + TWIML_APP_SID)."}, status_code=200)

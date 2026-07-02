@@ -52,6 +52,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 import asr  # noqa: E402  (after dotenv load)
+import auth  # noqa: E402
 import doc_index  # noqa: E402
 import llm  # noqa: E402
 import mailer  # noqa: E402
@@ -105,6 +106,53 @@ def health() -> JSONResponse:
     h["response_cache"] = response_cache.info()
     h["rate_limit"] = ratelimit.info()
     return JSONResponse(h)
+
+
+# ---- Sign-in (email-token) for the mobile app ------------------------------
+class AuthRequest(BaseModel):
+    email: str = ""
+
+
+class AuthVerify(BaseModel):
+    token: str = ""
+
+
+@app.post("/api/auth/request")
+def auth_request(req: AuthRequest, _rl: None = Depends(rate_limit)) -> JSONResponse:
+    """Email a single-use sign-in token to an address in the allowed domain."""
+    if not auth.required():
+        return JSONResponse({"ok": True, "auth_required": False})
+    email = req.email.strip()
+    if not auth.email_ok(email):
+        raise HTTPException(status_code=400, detail=f"Use your @{auth.domain()} email address.")
+    tok = auth.issue_login(email)
+    sent, err = mailer.send(
+        email, "Your Sani Call sign-in token",
+        f"Your Sani Call sign-in token is:\n\n    {tok}\n\n"
+        f"Enter it in the app to sign in. It expires in {auth.CODE_TTL // 60} minutes "
+        f"and can be used once. If you didn't request this, you can ignore this email.")
+    if auth.DEV_ECHO:
+        print(f"[auth] sign-in token for {email}: {tok}", flush=True)
+    if not sent and not auth.DEV_ECHO:
+        raise HTTPException(status_code=503, detail=f"Could not send email: {err}")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/auth/verify")
+def auth_verify(req: AuthVerify) -> JSONResponse:
+    """Exchange a login token for a session bearer the app stores + sends."""
+    result = auth.verify_login(req.token)
+    if result is None:
+        raise HTTPException(status_code=401, detail="That token is invalid or expired.")
+    session, email = result
+    return JSONResponse({"ok": True, "token": session, "email": email})
+
+
+@app.post("/api/auth/signout")
+def auth_signout(authorization: str | None = Header(default=None),
+                 x_sani_auth: str | None = Header(default=None, alias="X-Sani-Auth")) -> JSONResponse:
+    auth.sign_out(auth.token_from_headers(authorization, x_sani_auth))
+    return JSONResponse({"ok": True})
 
 
 def _last_user(msgs: list[dict]) -> str:
