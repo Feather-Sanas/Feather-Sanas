@@ -1,0 +1,29 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored — never
+# commit real values. Secrets (the .env, the SES password) do NOT go here; they
+# live in Secrets Manager (see README).
+
+# --- required ---------------------------------------------------------------
+domain_name = "sani-demo.com" # a domain ALREADY hosted as a Route 53 zone here
+
+# GitHub PAT with `repo` + `admin:repo_hook` scope so Amplify can connect the
+# repo. Leave "" and set enable_amplify=false to skip the Amplify front-end.
+github_access_token = "REPLACE_WITH_GITHUB_PAT" # repo + admin:repo_hook scope
+
+# --- common tweaks ----------------------------------------------------------
+region        = "us-east-1"
+api_subdomain = "api" # backend => api.sani-demo.com
+# app_subdomain = "app"  # optional custom UI domain; omit to use *.amplifyapp.com
+instance_type = "t3.small" # t3.medium if you want ASR/Whisper headroom
+
+# Reach the box via SSM Session Manager by default (no SSH port). To allow SSH,
+# set both of these:
+# ssh_ingress_cidr = "203.0.113.4/32"   # your IP only
+# key_pair_name    = "my-ec2-keypair"
+
+# --- email (SES) ------------------------------------------------------------
+notify_email = "chris.featherstone@sanas.ai"
+# ses_domain = "sani-demo.com"   # defaults to domain_name
+
+# --- artifact names (usually leave as-is) -----------------------------------
+# secret_name    = "sani/env"
+# sdk_object_key = "sanas_remote_sdk_linux_x86-64.tar.gz"

@@ -1,0 +1,66 @@
+#!/bin/bash
+# Sani backend bootstrap. Runs on first boot (and again when this template
+# changes, because user_data_replace_on_change = true). Idempotent enough to
+# re-run by hand: `sudo bash /opt/sani/infra/aws/bootstrap-rerun.sh` is generated
+# at the end for convenience.
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# Docker CE + the Compose v2 plugin from Docker's OFFICIAL apt repo. Ubuntu's
+# universe `docker.io` does NOT ship the `docker compose` subcommand, and
+# `docker-compose-plugin` isn't in the default repos — so add the repo first.
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg git awscli
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+
+# Feather-Sanas is a PUBLIC repo, so an unauthenticated clone works. For a private
+# repo, supply a token in the URL (from Secrets Manager) or a deploy key here.
+APP_DIR=/opt/sani
+if [ ! -d "$APP_DIR/.git" ]; then
+  git clone --branch ${github_branch} ${github_repository} "$APP_DIR"
+else
+  git -C "$APP_DIR" fetch --all --quiet && git -C "$APP_DIR" reset --hard "origin/${github_branch}"
+fi
+cd "$APP_DIR"
+
+# --- server/.env from Secrets Manager -----------------------------------------
+# docker compose has `env_file: server/.env`, so the file MUST exist or the stack
+# won't start. If the secret isn't populated yet we still write a stub so the box
+# comes up (in mock/fallback mode) and you can populate + re-run later.
+if ! aws secretsmanager get-secret-value --secret-id ${secret_name} --region ${region} \
+     --query SecretString --output text > server/.env 2>/dev/null; then
+  echo "# Secret ${secret_name} not populated yet — running without secrets." > server/.env
+fi
+chmod 600 server/.env
+
+# --- Sanas Linux x86-64 SDK tarball into the build context ---------------------
+# The Dockerfile installs it at BUILD time, so it must be present before `up --build`.
+mkdir -p server/vendor
+if ! aws s3 cp "s3://${sdk_bucket}/${sdk_object_key}" server/vendor/ --region ${region}; then
+  echo "WARN: s3://${sdk_bucket}/${sdk_object_key} not found — building in MOCK mode."
+fi
+
+# --- build + run behind Caddy (auto-HTTPS for the API domain) -----------------
+SITE_ADDRESS=${site_address} docker compose up -d --build
+
+# --- convenience re-run script ------------------------------------------------
+cat > "$APP_DIR/infra/aws/bootstrap-rerun.sh" <<'RERUN'
+#!/bin/bash
+# Re-pull the .env secret + SDK tarball, then rebuild. Run after you populate the
+# Secrets Manager secret or upload the SDK tarball.
+set -uxo pipefail
+cd /opt/sani
+git fetch --all --quiet && git reset --hard "origin/${github_branch}"
+aws secretsmanager get-secret-value --secret-id ${secret_name} --region ${region} \
+  --query SecretString --output text > server/.env && chmod 600 server/.env
+mkdir -p server/vendor
+aws s3 cp "s3://${sdk_bucket}/${sdk_object_key}" server/vendor/ --region ${region} || true
+SITE_ADDRESS=${site_address} docker compose up -d --build
+RERUN
+chmod +x "$APP_DIR/infra/aws/bootstrap-rerun.sh"
