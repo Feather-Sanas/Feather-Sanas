@@ -8,8 +8,9 @@ examples/basic_usage.py + wav_utils.py (v1.0.14):
     the same; audio is fed in fixed chunks (20ms) with the last chunk zero-padded
   - secureMedia defaults False (matches the working demo)
 
-Falls back to a clearly-labelled MOCK when the SDK isn't installed, so the
-front-end stays functional during development.
+The native SDK is REQUIRED for audio processing. When it's unavailable or fails
+to initialize, processing is disabled — the endpoints report it unavailable and
+return no audio. There is NO mock / synthetic processing.
 
 Docs: https://developer.sanas.ai/Docs/Getting-Started/Quick-Start
 """
@@ -46,12 +47,17 @@ except Exception:
     _SDK_AVAILABLE = False
 
 
+class SanasUnavailable(RuntimeError):
+    """Raised when audio processing is requested but the native engine isn't ready.
+    Callers surface this as an explicit 'unavailable' — never as fake audio."""
+
+
 class SanasClient:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._sdk = None
         self._initialized = False
-        self.mode = "mock"          # "real" once the SDK initializes
+        self.mode = "unavailable"   # "real" once the SDK initializes
         self.auth = None            # "api_key" | "account" once initialized
         self.last_error: str | None = None
         self.model = DEFAULT_MODEL
@@ -65,13 +71,13 @@ class SanasClient:
         account_secret = os.getenv("SANAS_ACCOUNT_SECRET")
 
         if not _SDK_AVAILABLE:
-            self.last_error = "sanas_remote_sdk not installed (mock mode)"
+            self.last_error = "sanas_remote_sdk not installed (engine unavailable)"
             return
         if not endpoint:
-            self.last_error = "SANAS_ENDPOINT not set (mock mode)"
+            self.last_error = "SANAS_ENDPOINT not set (engine unavailable)"
             return
         if not (api_key or (account_id and account_secret)):
-            self.last_error = "no SANAS_API_KEY or account credentials set (mock mode)"
+            self.last_error = "no SANAS_API_KEY or account credentials set (engine unavailable)"
             return
 
         try:
@@ -95,7 +101,7 @@ class SanasClient:
             self._initialized = True
             self.mode = "real"
             self.last_error = None
-        except Exception as exc:  # keep the service up, fall back to mock
+        except Exception as exc:  # keep the service up; audio processing stays unavailable
             self.last_error = f"{type(exc).__name__}: {exc}"
             self.auth = None
 
@@ -128,12 +134,16 @@ class SanasClient:
         }
 
     # ---- processing ------------------------------------------------------
+    def available(self) -> bool:
+        """True only when the native engine is connected and can really process."""
+        return self.mode == "real" and self._initialized
+
     def process(self, samples: np.ndarray, sample_rate: int, model: str | None = None) -> np.ndarray:
-        """Process mono int16 PCM through the chosen model; return mono int16 PCM."""
-        model = model or self.model
-        if self.mode == "real" and self._initialized:
-            return self._process_real(samples, sample_rate, model)
-        return self._process_mock(samples, sample_rate)
+        """Process mono int16 PCM through the chosen model; return mono int16 PCM.
+        Raises SanasUnavailable when the native engine isn't ready — there is no mock."""
+        if not self.available():
+            raise SanasUnavailable(self.last_error or "Sanas engine unavailable")
+        return self._process_real(samples, sample_rate, model or self.model)
 
     def _process_real(self, samples: np.ndarray, sample_rate: int, model: str) -> np.ndarray:
         assert sanas_remote_sdk is not None
@@ -190,24 +200,6 @@ class SanasClient:
                 return (arr * 32767.0).astype(np.int16)
             finally:
                 self._sdk.DestroyAudioProcessor(processor)
-
-    @staticmethod
-    def _process_mock(samples: np.ndarray, sample_rate: int) -> np.ndarray:
-        """Deterministic stand-in (high-pass + soft noise gate) so the UX works
-        without the native SDK. NOT the Sanas model — reported as mock by /api/health."""
-        x = samples.astype(np.float32) / 32768.0
-        hp = np.empty_like(x)
-        a, prev_x, prev_y = 0.97, 0.0, 0.0
-        for i in range(len(x)):
-            y = a * (prev_y + x[i] - prev_x)
-            hp[i] = y
-            prev_x, prev_y = x[i], y
-        win = max(1, sample_rate // 100)
-        env = np.convolve(np.abs(hp), np.ones(win) / win, mode="same")
-        gate = np.clip((env - 0.012) / 0.05, 0.0, 1.0)
-        out = np.clip(hp * (0.6 + 0.4 * gate) * 1.1, -1.0, 1.0)
-        return (out * 32767.0).astype(np.int16)
-
 
 class StreamSession:
     """A persistent AudioProcessor for the live-mic path. Unlike batch process(),

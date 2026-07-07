@@ -1,7 +1,7 @@
 """
 Document RAG over user-uploaded unstructured files (PDF / DOCX / TXT / MD).
 
-Sani grounds chat answers in two corpora: the crawled sanas.ai site (webindex.py)
+Sanas.AI grounds chat answers in two corpora: the crawled sanas.ai site (webindex.py)
 and the documents a user uploads here. This module parses an upload into text,
 splits it into ~2 kB chunks, and indexes them with the SAME lexical term-frequency
 scoring as webindex — so a query can retrieve from the user's own material

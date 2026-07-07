@@ -1,5 +1,5 @@
 """
-Email-token sign-in for the Sani Call mobile app.
+Email-token sign-in for the Sanas.AI Call mobile app.
 
 Flow (a magic-token, restricted to one email domain — default @sanas.ai):
   1. POST /api/auth/request {email}  -> emails a single-use login token.
@@ -103,9 +103,9 @@ def token_from_headers(authorization: str | None, x_sani_auth: str | None) -> st
 
 
 def require_sani_auth(authorization: str | None = Header(default=None),
-                      x_sani_auth: str | None = Header(default=None, alias="X-Sani-Auth")) -> str | None:
+                      x_sani_auth: str | None = Header(default=None, alias="X-Sanas.AI-Auth")) -> str | None:
     """Dependency: allow when auth is disabled; else require a valid session
-    bearer (Authorization: Bearer <token>, or X-Sani-Auth). Returns the email."""
+    bearer (Authorization: Bearer <token>, or X-Sanas.AI-Auth). Returns the email."""
     if not AUTH_REQUIRED:
         return None
     tok = _bearer(authorization, x_sani_auth)

@@ -23,7 +23,7 @@ def _cfg() -> dict:
         "user": os.getenv("SMTP_USER", "").strip(),
         "password": os.getenv("SMTP_PASS", ""),
         "from": (os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or "").strip(),
-        "from_name": os.getenv("SMTP_FROM_NAME", "Sani — Sanas").strip(),
+        "from_name": os.getenv("SMTP_FROM_NAME", "Sanas.AI — Sanas").strip(),
         "ssl": os.getenv("SMTP_SSL", "").lower() in ("1", "true", "yes"),
     }
 

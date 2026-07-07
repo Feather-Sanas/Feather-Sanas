@@ -28,7 +28,7 @@ RUN set -e; \
         cd "$SDKDIR" && chmod +x install.sh && ./install.sh; \
         pip3 install --no-cache-dir ./sanas_remote_sdk 2>/dev/null || true; \
     else \
-        echo "No SDK tarball in server/vendor/ — running in MOCK mode."; \
+        echo "No SDK tarball in server/vendor/ — audio processing will be UNAVAILABLE (no mock)."; \
     fi
 
 # Backend source (kept OUT of the web root so it isn't served over HTTP).

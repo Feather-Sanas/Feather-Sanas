@@ -1,6 +1,6 @@
 # Twilio voice handoff — go-live setup
 
-Sani connects a caller to a **human** or bridges two parties, and routes the call
+Sanas.AI connects a caller to a **human** or bridges two parties, and routes the call
 audio through **Sanas** in real time. Three ways to use it, all with a **mid-call
 model On/Off** (and live model switching):
 

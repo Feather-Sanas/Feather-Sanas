@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sani backend bootstrap. Runs on first boot (and again when this template
+# Sanas.AI backend bootstrap. Runs on first boot (and again when this template
 # changes, because user_data_replace_on_change = true). Idempotent enough to
 # re-run by hand: `sudo bash /opt/sani/infra/aws/bootstrap-rerun.sh` is generated
 # at the end for convenience.
@@ -32,7 +32,7 @@ cd "$APP_DIR"
 # --- server/.env from Secrets Manager -----------------------------------------
 # docker compose has `env_file: server/.env`, so the file MUST exist or the stack
 # won't start. If the secret isn't populated yet we still write a stub so the box
-# comes up (in mock/fallback mode) and you can populate + re-run later.
+# comes up (audio processing stays unavailable) and you can populate + re-run later.
 if ! aws secretsmanager get-secret-value --secret-id ${secret_name} --region ${region} \
      --query SecretString --output text > server/.env 2>/dev/null; then
   echo "# Secret ${secret_name} not populated yet — running without secrets." > server/.env
@@ -43,7 +43,7 @@ chmod 600 server/.env
 # The Dockerfile installs it at BUILD time, so it must be present before `up --build`.
 mkdir -p server/vendor
 if ! aws s3 cp "s3://${sdk_bucket}/${sdk_object_key}" server/vendor/ --region ${region}; then
-  echo "WARN: s3://${sdk_bucket}/${sdk_object_key} not found — building in MOCK mode."
+  echo "WARN: s3://${sdk_bucket}/${sdk_object_key} not found — audio processing will be UNAVAILABLE (no SDK, no mock)."
 fi
 
 # --- build + run behind Caddy (auto-HTTPS for the API domain) -----------------
