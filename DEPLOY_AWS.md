@@ -1,6 +1,6 @@
-# Deploying Sani on AWS
+# Deploying Sanas.AI on AWS
 
-This is the production reference for running Sani on AWS. It has two layers:
+This is the production reference for running Sanas.AI on AWS. It has two layers:
 
 - **Demo baseline** — one EC2 instance behind Caddy. Cheapest thing that runs every
   feature (native Sanas SDK, WebSockets, Claude, Twilio). Start here.
@@ -128,8 +128,9 @@ on the same URL. faster-whisper (ASR on uploads) is memory-hungry — `t3.small`
 
 ### Prerequisites
 - **The Linux x86-64 Sanas SDK tarball** (`sanas_remote_sdk_linux_x86-64_<ver>.tar.gz`).
-  Without it the container runs in **mock mode** (no real Sanas processing). The macOS wheel
-  you have locally will not work on the Linux box.
+  Without it, audio processing is **unavailable** — `/api/process` returns 503 and the UI
+  says so (there is no mock/synthetic processing). The macOS wheel you have locally will not
+  work on the Linux box.
 - A registered domain you can point at the instance (HTTPS + stable Twilio URLs).
 - Your filled-in `server/.env` (never committed) — see [`server/.env.example`](server/.env.example).
 
@@ -270,7 +271,7 @@ SMTP_PORT=587                                  # STARTTLS
 SMTP_USER=<SES SMTP username>                  # SES Console → SMTP settings → Create credentials
 SMTP_PASS=<SES SMTP password>
 SMTP_FROM=sani@your-verified-domain.com        # MUST be a verified SES identity
-SMTP_FROM_NAME=Sani — Sanas
+SMTP_FROM_NAME=Sanas.AI — Sanas
 ```
 Verify the sending domain/identity in SES, create SMTP credentials, and request production
 access (the sandbox only sends to verified recipients). Third-party SMTP (Gmail app password,
@@ -318,8 +319,9 @@ When one box isn't enough, or you want managed runtime instead of an EC2 you pat
 - **Single instance / in-memory state** — live mic + Twilio bridge sessions, admin logins, the
   response cache, and lead lists don't survive a restart or redeploy. Fine for demos; §8 is the
   path past it.
-- **Mock mode** is the tell that the SDK tarball is missing or failed to install — `/api/health`
-  shows `mode:"mock"`. Re-check `server/vendor/` and rebuild.
+- **`mode:"unavailable"`** from `/api/health` is the tell that the SDK tarball is missing or
+  failed to install (there is no mock — audio endpoints return 503). Re-check `server/vendor/`
+  and rebuild.
 - **Secrets** stay in `server/.env` (mode 600) on the box for the baseline. For production move
   them to Secrets Manager / SSM (§2) and inject at container start via the instance role.
 - **Build is native on AWS** — the EC2/Fargate host is x86-64, so the `linux/amd64` image builds

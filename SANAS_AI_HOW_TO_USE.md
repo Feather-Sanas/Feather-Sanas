@@ -1,10 +1,10 @@
-# Sani — Sanas.ai Speech AI Chatbot: What It Is & How to Use It
+# Sanas.AI — Sanas.ai Speech AI Chatbot: What It Is & How to Use It
 
 ---
 
-## What Is Sani?
+## What Is Sanas.AI?
 
-**Sani** is an AI-powered Speech AI consultant and chatbot built as a brand-accurate prototype for Sanas.ai. It lives at `http://127.0.0.1:8000/` and combines a polished marketing surface with an always-on chat panel that answers real questions about Sanas technology, demonstrates the audio engine live, and can connect users to phone calls or human agents.
+**Sanas.AI** is an AI-powered Speech AI consultant and chatbot built as a brand-accurate prototype for Sanas.ai. It lives at `http://127.0.0.1:8000/` and combines a polished marketing surface with an always-on chat panel that answers real questions about Sanas technology, demonstrates the audio engine live, and can connect users to phone calls or human agents.
 
 The chatbot is powered by **Claude** (Anthropic) when an `ANTHROPIC_API_KEY` is configured, grounded against a crawled index of sanas.ai content. Without a key, a deterministic rule engine takes over seamlessly — the UI looks and behaves identically either way.
 
@@ -16,7 +16,7 @@ When you first open `http://127.0.0.1:8000/`, you land on the Sanas marketing su
 
 - **Open the Playground** — jumps directly to the audio processing tool inside the chat panel
 - **Play a before/after** — opens the chat and triggers an audio comparison card
-- The **Sanas icon button** in the bottom-right corner opens Sani's chat panel at any time
+- The **Sanas icon button** in the bottom-right corner opens Sanas.AI's chat panel at any time
 
 > **Tip:** Deep-link directly to any view: `/?open=chat`, `/?open=playground`, or `/?open=connect`.
 
@@ -32,7 +32,7 @@ Click the circular Sanas icon in the bottom-right corner of the page. The chat p
 |---|---|
 | **# button** | Opens the internal observability/admin drawer |
 | **X button** | Closes the chat panel |
-| **I'M A… dropdown** | Sets your persona — changes Sani's register and focus |
+| **I'M A… dropdown** | Sets your persona — changes Sanas.AI's register and focus |
 | **Industry… dropdown** | Filters responses and case studies to a specific vertical |
 | **Test a model** | Opens the Playground inline |
 | **Speak live** | Starts a live mic streaming session |
@@ -40,7 +40,7 @@ Click the circular Sanas icon in the bottom-right corner of the page. The chat p
 
 ### 2b. Setting Your Persona
 
-Click the **"Just looking"** dropdown to choose who you are. Sani's language, depth, and examples change immediately.
+Click the **"Just looking"** dropdown to choose who you are. Sanas.AI's language, depth, and examples change immediately.
 
 - **Just looking** — accessible, general-purpose tone (the default)
 - **CX / Contact Center buyer** — focuses on AHT, CSAT, agent experience metrics
@@ -52,15 +52,15 @@ Click the **"Just looking"** dropdown to choose who you are. Sani's language, de
 
 ### 2c. Setting an Industry
 
-Click the **Industry…** dropdown. Available: **Healthcare, Financial Services, Retail, Travel & Hospitality, Telecom**. Selecting one primes Sani with that industry's content and adds a "Customer stories" chip with real sanas.ai case studies.
+Click the **Industry…** dropdown. Available: **Healthcare, Financial Services, Retail, Travel & Hospitality, Telecom**. Selecting one primes Sanas.AI with that industry's content and adds a "Customer stories" chip with real sanas.ai case studies.
 
 ### 2d. Suggestion Chips & Typing a Message
 
-Sani pre-fills 3–4 clickable chips based on your current persona and context. Click any chip to fire it as a message, or type freely in the text box at the bottom. Click the **upload arrow** button to attach an audio file for live processing.
+Sanas.AI pre-fills 3–4 clickable chips based on your current persona and context. Click any chip to fire it as a message, or type freely in the text box at the bottom. Click the **upload arrow** button to attach an audio file for live processing.
 
-### 2e. Reading Sani's Answers
+### 2e. Reading Sanas.AI's Answers
 
-Sani's replies stream token-by-token and finalize with full markdown formatting. At the bottom of each answer, **source pills** link back to the exact sanas.ai pages used to ground the response. Click any pill to open that source directly.
+Sanas.AI's replies stream token-by-token and finalize with full markdown formatting. At the bottom of each answer, **source pills** link back to the exact sanas.ai pages used to ground the response. Click any pill to open that source directly.
 
 ---
 
@@ -133,5 +133,5 @@ Click the **#** button in the top-right of the chat header.
 - **Source pills are clickable.** Every answer shows pills below the reply; click to open the source page in a new tab.
 - **The Before/After toggle works mid-play.** Flip it while audio is playing to hear the transition live.
 - **The model picker re-processes without re-uploading.** Switching the Analyze against dropdown immediately re-runs the same original file.
-- **Mock mode is fully functional.** Without the SDK or API key the app still runs end-to-end with clearly labeled mock results.
+- **Runs without the SDK — but never fakes audio.** Chat (Claude or the rule-based engine) and the curated before/after demos work without the SDK; live audio processing reports as unavailable (`/api/process` returns 503) rather than producing mock results.
 - **The spectrogram is browser-native.** The frequency-time heatmap runs as a client-side STFT calculation — no extra dependencies needed.

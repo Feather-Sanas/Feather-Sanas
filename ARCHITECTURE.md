@@ -1,7 +1,7 @@
-# Sani — Architecture & Documentation
+# Sanas.AI — Architecture & Documentation
 
-**Sani** is a brand-accurate prototype of the Sanas.ai Speech-AI consultant: a marketing
-page with an always-on chat concierge ("Sani"), a model **Playground**, **live mic
+**Sanas.AI** is a brand-accurate prototype of the Sanas.ai Speech-AI consultant: a marketing
+page with an always-on chat concierge ("Sanas.AI"), a model **Playground**, **live mic
 streaming** through the real Sanas engine, and developer/observability surfaces.
 
 It is a thin single-page front-end backed by one FastAPI service. The backend is the
@@ -12,7 +12,7 @@ code that talks to the native Sanas Remote SDK. The browser never sees a credent
 - **Stack:** vanilla JS + Web Audio (no framework) · FastAPI/uvicorn (Python 3.10) ·
   `sanas_remote_sdk` (native wheel) · Anthropic SDK (Claude) · faster-whisper (ASR).
 
-![Sani architecture — the browser, the secret-holding FastAPI backend, and the external services](docs/architecture.svg)
+![Sanas.AI architecture — the browser, the secret-holding FastAPI backend, and the external services](docs/architecture.svg)
 
 ---
 
@@ -79,7 +79,7 @@ ASCII fallback:
   never reach the client. So a backend is mandatory, and it is the single integration point.
 - **Graceful degradation everywhere.** Each external dependency (Sanas SDK, Claude, Whisper)
   is optional at runtime. If one is unavailable the feature reports it via `/api/health`
-  and the rest of the app keeps working (mock audio / rule-based chat / "ASR not enabled").
+  and the rest of the app keeps working (audio processing reports unavailable — no mock / rule-based chat / "ASR not enabled").
 
 ---
 
@@ -87,10 +87,10 @@ ASCII fallback:
 
 | Component | File | Responsibility |
 |---|---|---|
-| **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sani chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
+| **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sanas.AI chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
 | **Front-end app** | `app.js` | Rule engine (retrieval, **8-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security / **Partner** — plus an **industry** dropdown (Healthcare / Financial Services / Retail / Travel / **Telecom**), skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
-| **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). Mock fallback when the SDK/creds are absent. |
+| **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). When the SDK/creds are absent, processing is unavailable (`process()` raises `SanasUnavailable`) — no mock. |
 | **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Formats retrieved context as either sanas.ai pages (inline-linked) or **uploaded documents** (cited by filename). Returns `None` to signal the client to fall back to the rule engine. |
 | **Site retrieval** | `server/webindex.py` + `web_index.json` | Lexical (TF) top-k over the crawled sanas.ai/help.sanas.ai index; intent-biased `prefer=`. |
 | **Document RAG** | `server/doc_index.py` + `rag_store.json` | Parses uploaded PDF/DOCX/TXT/MD, chunks (~2 kB), lexically indexes (same scoring as the site), **persists to disk**; `_retrieve()` in `main.py` merges doc hits ahead of site pages for grounding. |
@@ -265,7 +265,7 @@ not faked).
 - **ASR smoke test:** `server/.venv310/bin/python scripts/asr_smoke.py [clip.wav] [--reference "…"] [--process]`.
 - **Deploy (Linux):** `docker compose up --build` (Ubuntu 22.04 x86-64 image installs the SDK tarball).
 - **Deploy (AWS):** Amplify (front-end) + a single x86-64 EC2 running this Compose stack behind Caddy; ElastiCache/SES/Secrets Manager are the production add-ons. Full guide + the AWS service/access list for IT: [DEPLOY_AWS.md](DEPLOY_AWS.md).
-- **Mock mode:** without the SDK/creds the backend boots in mock mode (clearly labelled by `/api/health`).
+- **No SDK:** without the SDK/creds, audio processing is unavailable — `/api/health` reports `mode:"unavailable"` and `/api/process` returns 503. There is no mock processing.
 
 ---
 
@@ -273,7 +273,7 @@ not faked).
 
 ```
 san-consultant/
-├── index.html · styles.css · app.js      # front-end (marketing + Sani consultant)
+├── index.html · styles.css · app.js      # front-end (marketing + Sanas.AI consultant)
 ├── package.json                          # golden-eval runner (jsdom)
 ├── ARCHITECTURE.md · README.md
 ├── server/
@@ -345,7 +345,7 @@ Retrieval is **intent-biased**: `webindex.search(query, prefer=…)` boosts a se
 The **Data Scientist** persona passes `prefer="/science"` (grounds answers in the Sanas
 science write-ups — 8→16 kHz upscaling, VAD, ASR-optimized NC). The **Help** persona and
 **support/how-to questions** (detected by keywords — install, configure, integrate,
-troubleshoot, reset, audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sani answers
+troubleshoot, reset, audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sanas.AI answers
 from and links to the real help docs. The audio showroom's before/after clips are the **real sanas.ai demo audio**
 streamed from the Sanas media CDN (synth fallback if unreachable).
 
@@ -388,7 +388,7 @@ vertical that (a) posts a tailored line linking the industry's sanas.ai page, (b
 framed via telephony/NC and pins only its story.
 
 ### Persona default & deep-links (`app.js`)
-Sani **defaults to "Just looking"** — opening the panel does not auto-switch the persona
+Sanas.AI **defaults to "Just looking"** — opening the panel does not auto-switch the persona
 from the in-view section. Persona changes only via the dropdown, typed-intent
 classification, or an explicit `?persona=<key>` deep link (which also primes the matching
 ROI model). The dropdown pick always wins; `?open=` opens straight to a view.

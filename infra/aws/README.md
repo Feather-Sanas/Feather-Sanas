@@ -1,4 +1,4 @@
-# Sani on AWS — Terraform
+# Sanas.AI on AWS — Terraform
 
 Infrastructure-as-code for the split deploy in [`../../DEPLOY_AWS.md`](../../DEPLOY_AWS.md):
 
@@ -13,7 +13,7 @@ Amplify cannot run the backend — it's serverless, and the backend needs a long
 | Thing | Why |
 |---|---|
 | A **Route 53 hosted zone** for your domain (in this account) | HTTPS is mandatory — the Amplify (HTTPS) UI can't call a plain-HTTP backend, and Twilio/mic need it. |
-| The **Sanas Linux x86-64 SDK tarball** | Installed at image-build time; without it the backend runs in **mock mode**. |
+| The **Sanas Linux x86-64 SDK tarball** | Installed at image-build time; without it audio processing is **unavailable** (`/api/process` returns 503 — there is no mock). |
 | The backend **`server/.env`** values | Anthropic key, Twilio creds, `RAG_ADMIN_PASSWORD`, `PUBLIC_BASE_URL`, Sanas creds (SMTP comes from Terraform outputs). |
 | A **GitHub PAT** (`repo` + `admin:repo_hook`) | So Amplify can connect the repo. Skip with `enable_amplify = false`. |
 | **AWS credentials** for `terraform` | Provisioning rights (EC2/VPC/EIP, Route 53, S3, Secrets Manager, IAM, Amplify, SES). |

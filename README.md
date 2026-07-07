@@ -1,13 +1,13 @@
-# Sani — the Sanas.ai Speech AI Consultant (MVP prototype)
+# Sanas.AI — the Sanas.ai Speech AI Consultant (MVP prototype)
 
-A working, brand-accurate front-end prototype of **Sani**, the always-on speech-AI
+A working, brand-accurate front-end prototype of **Sanas.AI**, the always-on speech-AI
 consultant specified in *"The Sanas.ai Speech AI Consultant — Merged v1.0"*.
 
 This build implements **Phase 1 (MVP)**: trusted education, a recommendation engine,
 persona-aware routing, developer tooling, and self-observability — plus a **real
 Sanas SDK integration** for live audio processing on uploaded clips.
 
-![Sani architecture — the browser, the secret-holding FastAPI backend, and the external services (Sanas Cloud, Anthropic, Whisper, the sanas.ai index, and Twilio)](docs/architecture.svg)
+![Sanas.AI architecture — the browser, the secret-holding FastAPI backend, and the external services (Sanas Cloud, Anthropic, Whisper, the sanas.ai index, and Twilio)](docs/architecture.svg)
 
 > 📐 **Architecture & diagrams:** see [ARCHITECTURE.md](ARCHITECTURE.md) for the system
 > diagram, component map, API surface, and the chat / upload / live-mic / ASR flows.
@@ -21,8 +21,8 @@ Sanas SDK integration** for live audio processing on uploaded clips.
 
 | | |
 |---|---|
-| ![Landing — the sanas.ai-styled marketing surface Sani lives on](docs/examples/01-landing.png) | ![Sani consultant — persona dropdown, typed opening, suggestions](docs/examples/02-consultant-chat.png) |
-| **Landing** — the brand-accurate marketing surface | **Sani** — persona dropdown, typed opening, suggestions |
+| ![Landing — the sanas.ai-styled marketing surface Sanas.AI lives on](docs/examples/01-landing.png) | ![Sanas.AI consultant — persona dropdown, typed opening, suggestions](docs/examples/02-consultant-chat.png) |
+| **Landing** — the brand-accurate marketing surface | **Sanas.AI** — persona dropdown, typed opening, suggestions |
 | ![Playground — capability and model dropdowns, record/upload, test-all](docs/examples/03-playground.png) | ![Connect by voice — one number field, action dropdown, model picker](docs/examples/04-connect-by-voice.png) |
 | **Playground** — capability + model dropdowns, record/upload, test-all | **Connect by voice** — one field, action dropdown, model picker |
 
@@ -62,8 +62,9 @@ cp sanas_remote_sdk_linux_x86-64_<ver>.tar.gz server/vendor/
 docker compose up --build           # → http://localhost:8000 (front-end + /api together)
 ```
 
-Without the SDK the backend boots in **mock mode** (a stand-in cleanup, clearly
-labelled by `/api/health` and in the UI) so the whole UX still works.
+Without the SDK, audio processing is **unavailable** — `/api/process` returns 503
+and `/api/health` reports `mode:"unavailable"` (there is **no** mock / synthetic
+processing). The rest of the app (chat, curated before/after demos, RAG) still works.
 
 > **Deploy on AWS:** the same Compose stack runs on a single x86-64 EC2 behind Caddy, with
 > the front-end optionally on Amplify. For the full topology, the AWS service + access list
@@ -82,11 +83,11 @@ labelled by `/api/health` and in the UI) so the whole UX still works.
 
 | File | Purpose |
 |------|---------|
-| `index.html` / `styles.css` / `app.js` | The Sani front-end (marketing surface + chat consultant) |
+| `index.html` / `styles.css` / `app.js` | The Sanas.AI front-end (marketing surface + chat consultant) |
 | `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*` (admin-gated), `/api/admin/*`, `/api/demo/*`; serves the front-end |
 | `server/mailer.py` | Tiny SMTP sender for the "More Information / book a demo" flow (creds in `.env`; no-ops gracefully when unset) |
-| `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples), with a mock fallback |
-| `server/llm.py` | Sani's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
+| `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples); when the SDK/creds are absent, processing is reported unavailable (no mock) |
+| `server/llm.py` | Sanas.AI's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
 | `server/twilio_routes.py` | Optional voice layer: IVR, human handoff, dial-in **in-path bridge**, DTMF model switching (see [TWILIO_SETUP.md](TWILIO_SETUP.md)) |
 | `server/webindex.py` + `server/web_index.json` | Lexical retrieval over the indexed sanas.ai content (incl. `/science`) that grounds chat answers and supplies citations |
 | `server/doc_index.py` + `server/rag_store.json` | **Document RAG** — parses uploaded PDF/DOCX/TXT/MD, chunks + lexically indexes them (persisted to disk), and grounds chat answers in the user's own material (`rag_store.json` is git-ignored runtime data) |
@@ -100,7 +101,7 @@ labelled by `/api/health` and in the UI) so the whole UX still works.
 
 ## Claude-powered chat
 
-Sani's prose is generated by Claude when `ANTHROPIC_API_KEY` is set in `server/.env`;
+Sanas.AI's prose is generated by Claude when `ANTHROPIC_API_KEY` is set in `server/.env`;
 otherwise the deterministic rule engine answers (the UI is identical either way).
 
 - **Streamed token-by-token** — conversational replies stream into the chat bubble as
@@ -176,7 +177,7 @@ player:
 **`/science` articles** plus blog/news posts — **and the help center `help.sanas.ai`**
 (every article in its Document360 `llms.txt`) into `server/web_index.json` (~220 pages).
 On every chat turn the backend retrieves the top-matching pages (`server/webindex.py`),
-passes them to Claude as grounding context. Sani **weaves inline links to the relevant
+passes them to Claude as grounding context. Sanas.AI **weaves inline links to the relevant
 pages directly into its reply** (markdown `[anchor](url)` on the words it describes — and
 bare URLs are auto-linked too), and the same pages also appear as **clickable source
 chips** under the answer. Retrieval is intent-biased: the **Help** persona and any
@@ -190,13 +191,13 @@ server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (p
 
 ## Document RAG — ground answers in your own files
 
-Beyond the sanas.ai site, Sani can answer from **unstructured documents** — uploaded by
+Beyond the sanas.ai site, Sanas.AI can answer from **unstructured documents** — uploaded by
 an **admin**. Upload accepts **PDF, DOCX, TXT, and Markdown**; the backend parses the text
 (pypdf / python-docx / plain decode), splits it into ~2 kB chunks, and indexes them with
 the **same lexical scoring as the site index** — no embeddings service, no per-request cost.
 
 - **Admin-gated upload** — managing the knowledge base is **admin-only**. Set
-  `RAG_ADMIN_PASSWORD` in `server/.env`, then log in via the **⌗ panel** (top-right of Sani):
+  `RAG_ADMIN_PASSWORD` in `server/.env`, then log in via the **⌗ panel** (top-right of Sanas.AI):
   `POST /api/admin/login` issues an in-memory bearer token (cleared on restart). Only then
   does the composer's document button appear, and the admin panel shows the indexed docs +
   **Clear all** / **Log out**. **Retrieval over already-uploaded docs stays open to every
@@ -214,11 +215,11 @@ the **same lexical scoring as the site index** — no embeddings service, no per
   content). A scanned/image-only PDF (no extractable text) is reported back, not crashed on.
 - **Honesty** — a near-zero lexical match is dropped (`min_score`), so an irrelevant
   document doesn't get forced into the context; if the docs don't answer the question,
-  Sani says so rather than fabricating a fit.
+  Sanas.AI says so rather than fabricating a fit.
 
 ## Persona & deep-links
 
-Sani **defaults to "Just looking"** — opening the panel does not auto-switch the persona
+Sanas.AI **defaults to "Just looking"** — opening the panel does not auto-switch the persona
 based on which marketing section is in view. The persona changes only when the user picks
 it in the dropdown, types something that classifies them, or arrives via an explicit
 `?persona=<key>` share link (e.g. `?persona=buyer_telco`, which also primes the matching
@@ -331,7 +332,7 @@ no engine or prompt change ships if a golden eval fails.
 | Spec | Implemented |
 |------|-------------|
 | F1 Grounded Q&A + sources | Lexical retrieval over the ~220-page sanas.ai index **and uploaded documents (RAG)**; every answer shows source chips (site links + "from your documents") |
-| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown (default **Just looking**): Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security / **Partner**. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in help.sanas.ai**; **Partner → reseller/ISV/referral/SI programs grounded in [/partners](https://www.sanas.ai/partners), with an in-chat partner-application form**). A second **industry** dropdown (Healthcare / Financial Services / Retail / Travel & Hospitality / **Telecom**) sets the vertical — Sani frames examples/ROI for it and grounds answers in that industry's sanas.ai page |
+| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown (default **Just looking**): Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security / **Partner**. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in help.sanas.ai**; **Partner → reseller/ISV/referral/SI programs grounded in [/partners](https://www.sanas.ai/partners), with an in-chat partner-application form**). A second **industry** dropdown (Healthcare / Financial Services / Retail / Travel & Hospitality / **Telecom**) sets the vertical — Sanas.AI frames examples/ROI for it and grounds answers in that industry's sanas.ai page |
 | §3.4 Skeptic stance | Orthogonal per-turn score; triggers "showroom-first" behavior on any persona |
 | F3 Speech Science Educator | Acoustic Reconstruction + Dual-Decoder explanations, calibrated |
 | F4 Recommendation engine | Decision tree → product cards w/ rationale; handles compound challenges |
@@ -358,4 +359,4 @@ in-browser stand-ins a production deployment would replace per §7.6:
   `sanas/observability-toolkit` as a first-class dependency (§10).
 
 V2 (live transformation, full showroom, ASR comparison, tenant health) and V3
-(voice-native Sani) are out of scope for this MVP build.
+(voice-native Sanas.AI) are out of scope for this MVP build.

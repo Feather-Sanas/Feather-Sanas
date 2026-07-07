@@ -1,5 +1,5 @@
 /* ============================================================
-   Sani — the Sanas.ai Speech AI Consultant  (Phase 1 / MVP)
+   Sanas.AI — the Sanas.ai Speech AI Consultant  (Phase 1 / MVP)
    A working front-end prototype of the product specified in
    "The Sanas.ai Speech AI Consultant — Merged v1.0".
 
@@ -45,7 +45,7 @@ const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => 
 const waveSVG = (fill = '#000') => `<svg viewBox="0 0 100 100" fill="${fill}" xmlns="http://www.w3.org/2000/svg"><path d="M50 50 A25 25 0 0 1 75 25 L75 50 Z"/><path d="M50 50 A25 25 0 0 0 25 75 L25 50 Z"/></svg>`;
 
 /* ============================================================
-   KNOWLEDGE BASE  — every Sani factual claim is traceable to a chunk.
+   KNOWLEDGE BASE  — every Sanas.AI factual claim is traceable to a chunk.
    (F1: grounded retrieval; F3 educator content; §7.7 compliance.)
    Sourced from the product spec's stated architecture & claims.
    ============================================================ */
@@ -157,7 +157,7 @@ function classifyPersona(text, current) {
   if (/\b(csat|aht|fcr|roi|seats|agents|bpo|call center|cost|savings|demo|pilot)\b/.test(t)) return 'buyer_cx';
   return current || 'curious';
 }
-// Industries Sanas publishes (sanas.ai) + Telecom. Selecting one tells Sani the
+// Industries Sanas publishes (sanas.ai) + Telecom. Selecting one tells Sanas.AI the
 // vertical so it frames examples/ROI and grounds answers in that industry's page.
 const INDUSTRIES = {
   healthcare:           { label: 'Healthcare',            url: 'https://www.sanas.ai/healthcare' },
@@ -668,21 +668,21 @@ function linkChips(sources) {
    chosen by persona — which on first open is inferred from the page/section the
    visitor came from (see detectPageContext / openPanel). */
 const OPENINGS = {
-  curious: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. What are you trying to solve? Tell me what you're hearing — background noise, accent intelligibility, or a codec-level issue — and I'll show you the signal before and after.",
+  curious: { text: "Hi, I'm your Sanas Speech AI specialist. What are you trying to solve? Tell me what you're hearing — background noise, accent intelligibility, or a codec-level issue — and I'll show you the signal before and after.",
     suggestions: ['Offshore agents, US customers', 'Play a before/after', "I'm a developer", 'Is it really natural?'] },
-  buyer_cx: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. You're looking at the contact-center side, so I'll lead with outcomes — AHT, CSAT, FCR. Tell me your seat count and the main customer complaint, and I can run a directional ROI in a minute.",
+  buyer_cx: { text: "Hi, I'm your Sanas Speech AI specialist. You're looking at the contact-center side, so I'll lead with outcomes — AHT, CSAT, FCR. Tell me your seat count and the main customer complaint, and I can run a directional ROI in a minute.",
     suggestions: ['500 seats, offshore complaints', 'Run an ROI snapshot', 'Play a before/after', 'How is it measured?'] },
-  buyer_telco: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. For a carrier the levers are retention and ARPU: clearer in-network voice lowers churn and supports premium-voice upsell. Want the churn + ARPU ROI, or how we run in-path on the media stream?",
+  buyer_telco: { text: "Hi, I'm your Sanas Speech AI specialist. For a carrier the levers are retention and ARPU: clearer in-network voice lowers churn and supports premium-voice upsell. Want the churn + ARPU ROI, or how we run in-path on the media stream?",
     suggestions: ['Churn + ARPU ROI', 'How does it run in-path?', 'MOS lift over G.711', 'Latency budget per leg'] },
-  buyer_it: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Since you're on Trust, I'll keep to architecture and compliance: Dual-Decoder, Zero-Knowledge deployment, ISO 27001 / SOC 2 Type II / GDPR. Where should I start — topology or the certification list?",
+  buyer_it: { text: "Hi, I'm your Sanas Speech AI specialist. Since you're on Trust, I'll keep to architecture and compliance: Dual-Decoder, Zero-Knowledge deployment, ISO 27001 / SOC 2 Type II / GDPR. Where should I start — topology or the certification list?",
     suggestions: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications', 'Deployment topology'] },
-  developer: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Fast path: the `sanas_remote_sdk` package — init, then stream PCM through a model. Want the code, the eight-layer latency trace, or to upload a clip and hear it processed?",
+  developer: { text: "Hi, I'm your Sanas Speech AI specialist. Fast path: the `sanas_remote_sdk` package — init, then stream PCM through a model. Want the code, the eight-layer latency trace, or to upload a clip and hear it processed?",
     suggestions: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process', 'Latency budget'] },
-  data_scientist: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Coming from the Science page, so I'll talk shop: Sanas reconstructs the signal with a dual-decoder generative model rather than filtering, scored as WER for intelligibility and MOS/PESQ against clean references. Want the eval methodology, the architecture, or the science write-ups?",
+  data_scientist: { text: "Hi, I'm your Sanas Speech AI specialist. Coming from the Science page, so I'll talk shop: Sanas reconstructs the signal with a dual-decoder generative model rather than filtering, scored as WER for intelligibility and MOS/PESQ against clean references. Want the eval methodology, the architecture, or the science write-ups?",
     suggestions: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'] },
-  help: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. I can pull the right article from the Sanas help center. What do you need — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access?",
+  help: { text: "Hi, I'm your Sanas Speech AI specialist. I can pull the right article from the Sanas help center. What do you need — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access?",
     suggestions: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'] },
-  partner: { text: "Hi, I'm Sani — Sanas's Speech AI specialist. Looking to partner with Sanas? We run reseller, technology/ISV, referral, and SI programs. Tell me your model and I'll point you to the right program — and you can apply right here.",
+  partner: { text: "Hi, I'm your Sanas Speech AI specialist. Looking to partner with Sanas? We run reseller, technology/ISV, referral, and SI programs. Tell me your model and I'll point you to the right program — and you can apply right here.",
     suggestions: ['Apply to partner', 'Partner program types', 'How does co-sell work?', 'Integration / API'] },
 };
 function opening(persona) {
@@ -717,7 +717,7 @@ async function runAsr(inputs, mount) {
     data = await r.json();
   } catch {
     mount.innerHTML = '';
-    mount.appendChild(el('div', { class: 'asr-note' }, 'ASR backend unreachable — start the Sani server.'));
+    mount.appendChild(el('div', { class: 'asr-note' }, 'ASR backend unreachable — start the Sanas.AI server.'));
     return;
   }
   mount.innerHTML = '';
@@ -815,13 +815,11 @@ function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
   const setOn = v => { on = v; toggle.classList.toggle('on', on); track.setAttribute('aria-checked', String(on)); draw(); };
   track.addEventListener('click', () => { controls.halt(); setOn(!on); emit({ event: 'audio_toggle', processed: on, sanas_mode: meta.mode }); });
   track.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); track.click(); } });
-  const tgLabel = el('span', { class: 'tg-label' }, meta.mode === 'real' ? ('Sanas ' + meta.model) : 'raw ↔ cleaned');
+  const tgLabel = el('span', { class: 'tg-label' }, 'Sanas ' + meta.model);
   toggle.append(track, tgLabel, controls);
   requestAnimationFrame(draw);
 
-  const descText = () => meta.mode === 'real'
-    ? `Processed live by Sanas ${meta.model} at ${meta.sr} Hz · switch Before↔After, then Play/Stop`
-    : 'Mock processing — install the SDK for live Sanas output';
+  const descText = () => `Processed live by Sanas ${meta.model} at ${meta.sr} Hz · switch Before↔After, then Play/Stop`;
   const desc = el('div', { class: 'scn-desc' }, descText());
 
   // ASR (re-rendered when the model changes so WER reflects the current output)
@@ -850,7 +848,7 @@ function realShowroomNode(origBuf, procBuf, meta, rawBytes) {
           const res = await processClip(new Blob([origBytes], { type: 'audio/wav' }), name);
           proc = res.procBuf; procBytes = res.procBytes; meta = res.meta;
           if (on) draw(); else setOn(true);          // surface the new output
-          tgLabel.textContent = meta.mode === 'real' ? ('Sanas ' + meta.model) : 'raw ↔ cleaned';
+          tgLabel.textContent = 'Sanas ' + meta.model;
           desc.textContent = descText();
           renderAsr();
           status.textContent = `Now showing Sanas ${meta.model}.`;
@@ -889,7 +887,7 @@ function resultCard(label, res) {
   sw.addEventListener('click', () => { pp.halt(); on = !on; tag.textContent = on ? 'After' : 'Before'; });
   return el('div', { class: 'rc' },
     el('div', { class: 'rc-head' }, el('span', { class: 'rc-name' }, label), tag),
-    el('div', { class: 'rc-meta' }, pgMetricLine(meta) || (meta.mode === 'mock' ? 'mock mode' : '')),
+    el('div', { class: 'rc-meta' }, pgMetricLine(meta) || ''),
     el('div', { class: 'rc-ctl' }, sw, pp));
 }
 
@@ -930,9 +928,13 @@ function playgroundNode() {
       resultMount.innerHTML = '';
       resultMount.appendChild(resultCard(modelLabel(state.model), res));
       resultMount.appendChild(asrSection(async () => ({ before: res.origBytes, after: res.procBytes })));
-      setStatus(res.meta.mode === 'real' ? `Done · live Sanas ${res.meta.model}` : 'Done · mock mode (SDK not active)');
+      setStatus(`Done · live Sanas ${res.meta.model}`);
       emit({ event: 'playground_transform', model: state.model, sanas_mode: res.meta.mode });
-    } catch { setStatus('Processing failed — is the backend running?'); }
+    } catch (e) {
+      setStatus(String(e).includes('503')
+        ? 'Sanas engine unavailable — connect the real-time SDK backend.'
+        : 'Processing failed — is the backend running?');
+    }
   }
 
   function gotInput(blob, err) {
@@ -1125,7 +1127,7 @@ function liveNode() {
     ws.onopen = () => ws.send(JSON.stringify({ type: 'config', model: modelSel.value, enabled }));
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
-        try { const m = JSON.parse(ev.data); if (m.type === 'ready') { sr = m.sample_rate || sr; status.textContent = `Live · ${m.mode}${m.mode === 'real' ? '' : ' (mock: passthrough)'} · ${m.model}` + (m.error ? ` · ${m.error}` : ''); } } catch {}
+        try { const m = JSON.parse(ev.data); if (m.type === 'ready') { sr = m.sample_rate || sr; status.textContent = (m.mode === 'real' ? `Live · ${m.model}` : 'Sanas engine unavailable — connect the real-time SDK backend') + (m.error ? ` · ${m.error}` : ''); } } catch {}
         return;
       }
       schedule(new Int16Array(ev.data));
@@ -1166,8 +1168,22 @@ function liveNode() {
     if (!inLen) return;
     const rate = sr || 16000;
     const inFloat = concatFloat(inChunks, inLen);
-    const outFloat = outLen ? concatFloat(outChunks, outLen) : inFloat;
     const inputBuf = audioCtx().createBuffer(1, inLen, rate); inputBuf.getChannelData(0).set(inFloat);
+
+    // No model output came back (engine unavailable) — show ONLY the raw recording.
+    // Never present the raw mic input as a Sanas-processed "Model output" (no mock).
+    if (!outLen) {
+      recMount.appendChild(el('div', { class: 'rc' },
+        el('div', { class: 'rc-head' }, el('span', { class: 'rc-name' }, 'Your recording'),
+          el('span', { class: 'rc-side' }, 'Raw (your voice)')),
+        el('div', { class: 'rc-meta' }, `${(inLen / rate).toFixed(1)}s captured · Sanas engine unavailable — no processed audio to compare`),
+        el('div', { class: 'rc-ctl' }, audioControls(() => inputBuf))));
+      return;
+    }
+
+    // outLen > 0: real audio came back — either live-processed frames or the raw
+    // echo the backend returns when the model is toggled OFF (a legitimate A/B).
+    const outFloat = concatFloat(outChunks, outLen);
     const modelBuf = audioCtx().createBuffer(1, outFloat.length, rate); modelBuf.getChannelData(0).set(outFloat);
     let on = true;
     const tag = el('span', { class: 'rc-side' }, 'Model output');
@@ -1440,7 +1456,7 @@ function traceNode() {
   const live = el('div', { class: 'total' }, el('span', {}, 'backend'), el('span', {}, 'checking…'));
   fetchHealth().then(h => {
     live.lastChild.textContent = h
-      ? (h.mode === 'real' ? `live · ${h.model} · ${h.active_processors} active` : `mock · ${h.last_error || 'no SDK'}`)
+      ? (h.mode === 'real' ? `live · ${h.model} · ${h.active_processors} active` : `unavailable · ${h.last_error || 'no SDK'}`)
       : 'offline';
   });
   const footer = t
@@ -1463,7 +1479,7 @@ function traceNode() {
 function codeNode() {
   const samples = {
     'SDK (Python)': `import os, sanas_remote_sdk\n\nsdk = sanas_remote_sdk.CreateRemoteSDK()\n\ninit = sanas_remote_sdk.InitParams()\ninit.remoteEndpoint  = os.environ["SANAS_ENDPOINT"]      # e.g. sip.sanas.ai\ninit.accountId       = os.environ["SANAS_ACCOUNT_ID"]\ninit.accountSecret   = os.environ["SANAS_ACCOUNT_SECRET"]\ninit.secureMedia     = True\nsdk.Initialize(init)\n\nap = sanas_remote_sdk.AudioParams()\nap.modelName  = "SE2.2"   # Speech Enhancement\nap.sampleRate = 16000\nproc, res = sdk.CreateAudioProcessor(ap, on_state)\nout = proc.ProcessSamples(input_audio)   # mono int16 PCM\nsdk.DestroyAudioProcessor(proc); sdk.Shutdown()`,
-    'This app (curl)': `# the Sani backend wraps the SDK; credentials stay server-side\ncurl -F "file=@call.wav" \\\n     "http://localhost:8000/api/process?model=SE2.2" \\\n     -o cleaned.wav`,
+    'This app (curl)': `# the Sanas.AI backend wraps the SDK; credentials stay server-side\ncurl -F "file=@call.wav" \\\n     "http://localhost:8000/api/process?model=SE2.2" \\\n     -o cleaned.wav`,
     'This app (JS)': `const form = new FormData();\nform.append("file", file);            // user's clip\nconst r = await fetch("/api/process?model=SE2.2", {\n  method: "POST", body: form,\n});\nconst cleaned = await r.blob();        // Sanas-processed WAV\nnew Audio(URL.createObjectURL(cleaned)).play();`,
   };
   const keys = Object.keys(samples);
@@ -1479,14 +1495,14 @@ function codeNode() {
   });
   const block = el('div', { class: 'code-block rich' }, tabs, body);
   const wrap = el('div', { class: 'rich' }, block);
-  // surface live backend status (real SDK vs mock) so devs know what they're hitting
+  // surface live backend status (real SDK vs unavailable) so devs know what they're hitting
   const status = el('div', { class: 'sandbox-key' }, 'Checking backend…');
   wrap.appendChild(status);
   fetchHealth().then(h => {
     if (!h) { status.textContent = 'Backend offline — run `docker compose up` (holds the SDK + your SANAS_* creds).'; return; }
     status.textContent = h.mode === 'real'
       ? `Backend live · Sanas ${h.model} @ ${h.sample_rate} Hz · ${h.active_processors} active processors`
-      : `Backend in mock mode · ${h.last_error || 'SDK tarball not installed'}`;
+      : `Sanas engine unavailable · ${h.last_error || 'SDK not connected'}`;
     emit({ event: 'backend_health', sanas_mode: h.mode, model: h.model });
   });
   return wrap;
@@ -1576,6 +1592,16 @@ function roiNode(which) {
 }
 
 /* ---------- the router: turn text -> response ---------- */
+// Hard-refusal guardrail — mirrors the Claude system prompt (server/llm.py):
+// legal, competitive, or nefarious questions get ONE exact line; only Sanas
+// topics get answered. Scoped to avoid refusing legitimate Sanas questions.
+const REFUSAL_LINE = "Sorry, I cannot answer that — would you like to talk more about how Sanas.ai can help your business?";
+const refuse = (reason) => ({ text: REFUSAL_LINE, sources: [], nodes: [],
+  suggestions: ['What does Sanas do?', 'Play a before/after', 'Book a demo'], refusal: reason });
+const RX_NEFARIOUS = /\b(impersonat|deepfake|voice ?clone|clone[^.]{0,20}voice|fake[^.]{0,20}voice|catfish|phish|scam|defraud|fraud|pretend to be|without[^.]{0,20}consent|bypass consent|evade detection|wiretap)\b/;
+const RX_LEGAL = /\b(legal|lawsuit|sue|litigation|liabilit|indemnif|terms of service|warrant(y|ies)|jurisdiction|nda)\b/;
+const RX_COMPETITIVE = /\b(deepgram|elevenlabs|krisp|otter|assembly ?ai|cartesia|murf|competitors?|the competition|other (vendors?|solutions?|tools?|products?|providers?)|alternatives? to)\b/;
+
 function respond(text) {
   const t = text.toLowerCase().trim();
   const skeptic = skepticScore(text);
@@ -1604,10 +1630,10 @@ function respond(text) {
     return { text: "I won't speculate on certifications that aren't in my knowledge base. At MVP, Sanas documents ISO 27001, SOC 2 Type II, and GDPR. For FedRAMP, HIPAA, or PCI I'd rather loop in our security team than guess — they can speak to current status and roadmap.",
       sources: ['kb-iso'], suggestions: ['Talk to security', 'Zero-Knowledge deployment'], refusal: 'uncertified_compliance' };
   }
-  if (/\b(deepgram|elevenlabs|krisp|competitor|vs\.?|compare to|better than)\b/.test(t)) {
-    return { text: "I'll compare on facts, not knock anyone. Where Sanas is specific: we reconstruct the voice signal rather than filtering it, run accent translation under 200ms, and publish our own layer-by-layer latency trace. A side-by-side WER and latency comparison against your current vendor is on the V2 roadmap. For a head-to-head today, our SE team can run it with you.",
-      sources: ['kb-reconstruct', 'kb-latency'], suggestions: ['How does reconstruction work?', 'Talk to a human'] };
-  }
+  // Legal / competitive / nefarious → the one exact refusal line (checked early).
+  if (RX_NEFARIOUS.test(t)) return refuse('nefarious');
+  if (RX_LEGAL.test(t)) return refuse('legal');
+  if (RX_COMPETITIVE.test(t)) return refuse('competitive');
 
   // ---- Human handoff (F8) ----
   if (/\b(talk to (a )?human|speak to (someone|sales|a person)|book a demo|schedule|sales rep|account exec)\b/.test(t)) {
@@ -1619,11 +1645,11 @@ function respond(text) {
 
   // ---- Developer / API / sandbox / debug (F7, F10) ----
   if (/\b(debug|trace|latency breakdown|eight.?layer|layer trace|why.*slow)\b/.test(t)) {
-    return { text: "Here's the layer breakdown — the same eight-layer probe SREs see internally. The two big chunks are usually transport (endpoint distance) and ASR. Pick a region closer to your traffic and both drop sharply. The live status below comes from your Sani backend.",
+    return { text: "Here's the layer breakdown — the same eight-layer probe SREs see internally. The two big chunks are usually transport (endpoint distance) and ASR. Pick a region closer to your traffic and both drop sharply. The live status below comes from your Sanas.AI backend.",
       sources: ['kb-debug'], nodes: [traceNode()], suggestions: ['Show me the SDK code', 'What latency should I expect?'] };
   }
   if (/\b(api|sdk|curl|code|snippet|sandbox|integrat|endpoint|python|node)\b/.test(t)) {
-    return { text: "Here's the real path. The `sanas_remote_sdk` package initializes with your endpoint + account ID + secret, you create an AudioProcessor for a model (SE2.2 for Speech Enhancement), and stream PCM frames through ProcessSamples. Your Sani backend already wraps that, so from the browser you just POST a clip to /api/process — credentials never leave the server.",
+    return { text: "Here's the real path. The `sanas_remote_sdk` package initializes with your endpoint + account ID + secret, you create an AudioProcessor for a model (SE2.2 for Speech Enhancement), and stream PCM frames through ProcessSamples. Your Sanas.AI backend already wraps that, so from the browser you just POST a clip to /api/process — credentials never leave the server.",
       sources: ['kb-api'], nodes: [codeNode()], suggestions: ['Show the 8-layer trace', 'Upload a clip to process', 'What latency should I expect?'] };
   }
 
@@ -1750,7 +1776,7 @@ function addMessage(role, content, extras = {}) {
   log().scrollTop = log().scrollHeight;
 }
 
-/* a Sani message whose bubble fills token-by-token during streaming */
+/* a Sanas.AI message whose bubble fills token-by-token during streaming */
 function addStreamingMessage() {
   const wrap = el('div', { class: 'bubble-wrap' });
   const bubble = el('div', { class: 'bubble' });
@@ -1776,7 +1802,7 @@ function addStreamingMessage() {
   };
 }
 
-/* type a Sani message out word-by-word (used for the opening); instant if the
+/* type a Sanas.AI message out word-by-word (used for the opening); instant if the
    user prefers reduced motion */
 async function typeMessage(text, extras = {}) {
   const sm = addStreamingMessage();
@@ -1915,7 +1941,7 @@ async function handleUpload(file) {
     const procArr = await resp.arrayBuffer();
     const h = resp.headers;
     const meta = {
-      mode: h.get('X-Sanas-Mode') || 'mock', model: h.get('X-Sanas-Model') || 'SE2.2',
+      mode: h.get('X-Sanas-Mode') || 'real', model: h.get('X-Sanas-Model') || 'SE2.2',
       snr: h.get('X-Sanas-SNR-dB'), clip: h.get('X-Sanas-Clip-Rate'), sr: h.get('X-Sanas-Sample-Rate'),
       vad: h.get('X-Sanas-VAD'), dur: h.get('X-Sanas-Duration'),
       truncated: h.get('X-Sanas-Truncated') === '1', limit: h.get('X-Sanas-Clip-Limit-S'),
@@ -1928,9 +1954,7 @@ async function handleUpload(file) {
     };
     const [origBuf, procBuf] = await Promise.all([decodeAudio(arrBuf), decodeAudio(procArr)]);
     hideTyping();
-    const modeNote = meta.mode === 'real'
-      ? `Processed live through the Sanas ${meta.model} model.`
-      : `Heads up: the backend is in mock mode (no SDK installed yet) — this is a stand-in cleanup, not the Sanas model. Run the real-SDK backend to hear the real thing.`;
+    const modeNote = `Processed live through the Sanas ${meta.model} model.`;
     const truncNote = meta.truncated
       ? ` I trimmed it to the first ${meta.limit}s — the engine runs in real time, so longer clips take proportionally longer.`
       : '';
@@ -1941,8 +1965,11 @@ async function handleUpload(file) {
     emit({ event: 'audio_processed', audio_uploaded_bool: true, sanas_mode: meta.mode, model: meta.model });
   } catch (err) {
     hideTyping();
+    const unavailable = String(err).includes('503');
     addMessage('san',
-      "I couldn't reach the Sanas processing backend. Start the Sani server (`docker compose up`) — it holds the SDK and your credentials, and the browser never sees them. Here's a curated before/after in the meantime.",
+      unavailable
+        ? "The Sanas processing engine isn't connected right now — the real-time SDK isn't available on the backend, so I can't run your clip through a live model. Here's a curated before/after in the meantime."
+        : "I couldn't reach the Sanas processing backend. Start the Sanas.AI server (`docker compose up`) — it holds the SDK and your credentials, and the browser never sees them. Here's a curated before/after in the meantime.",
       { nodes: [showroomNode('cafe')] });
     emit({ event: 'audio_process_error', error: String(err) });
   } finally {
@@ -1982,13 +2009,13 @@ async function handleDocUpload(file) {
       return;
     }
     addMessage('san',
-      `Indexed **${data.name}** — ${(data.chunks || 0).toLocaleString()} sections, retrievable now. Ask me anything about it and I'll answer grounded in it, citing the document. Your file is stored on the Sani server only, never sent to the browser of anyone else.`,
+      `Indexed **${data.name}** — ${(data.chunks || 0).toLocaleString()} sections, retrievable now. Ask me anything about it and I'll answer grounded in it, citing the document. Your file is stored on the Sanas.AI server only, never sent to the browser of anyone else.`,
       { nodes: [docNode(data)] });
     setSuggestions(['Summarize this document', 'What are the key points?', 'How does this relate to Sanas?']);
     emit({ event: 'doc_indexed', doc_name: data.name, chunks: data.chunks, total_docs: data.total_docs });
   } catch (err) {
     hideTyping();
-    addMessage('san', "I couldn't reach the document indexer. Start the Sani server (`docker compose up`) and try again — parsing and storage happen there, not in the browser.");
+    addMessage('san', "I couldn't reach the document indexer. Start the Sanas.AI server (`docker compose up`) and try again — parsing and storage happen there, not in the browser.");
     emit({ event: 'doc_upload_error', error: String(err) });
   } finally {
     busy = false;
@@ -2069,7 +2096,7 @@ function renderAdmin() {
     };
     btn.addEventListener('click', go);
     pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    panel.append(el('div', { class: 'admin-note' }, 'Log in to upload documents Sani can answer from.'), pw, btn, err);
+    panel.append(el('div', { class: 'admin-note' }, 'Log in to upload documents Sanas.AI can answer from.'), pw, btn, err);
     return;
   }
   // logged in
@@ -2081,7 +2108,7 @@ function renderAdmin() {
   const logout = el('button', { class: 'admin-btn ghost' }, 'Log out');
   logout.addEventListener('click', () => adminLogout());
   panel.append(
-    el('div', { class: 'admin-note' }, 'Logged in. Upload PDF / DOCX / TXT / MD — Sani answers grounded in them for everyone.'),
+    el('div', { class: 'admin-note' }, 'Logged in. Upload PDF / DOCX / TXT / MD — Sanas.AI answers grounded in them for everyone.'),
     up, docs, el('div', { class: 'admin-actions' }, clear, logout));
   refreshDocs();
 }
@@ -2271,9 +2298,69 @@ function watchPageContext() {
   sections.forEach(s => io.observe(s));
 }
 
+// --- resizable chat panel: drag the top edge to see more of the conversation ---
+const PANEL_MIN_H = 360;
+// ceiling matches the CSS `max-height: calc(100vh - 36px)`
+const panelMaxH = () => Math.max(PANEL_MIN_H, window.innerHeight - 36);
+const panelMobile = () => window.matchMedia('(max-width: 560px)').matches;
+
+function applyPanelHeight(h) {
+  const panel = $('#sanPanel');
+  const clamped = Math.round(Math.min(panelMaxH(), Math.max(PANEL_MIN_H, h)));
+  panel.style.height = clamped + 'px';
+  return clamped;
+}
+
+function restorePanelHeight() {
+  const panel = $('#sanPanel');
+  if (panelMobile()) { panel.style.height = ''; return; }   // full-screen on mobile
+  let saved = 0;
+  try { saved = parseInt(localStorage.getItem('sani-panel-h') || '', 10); } catch {}
+  if (saved > 0) applyPanelHeight(saved);
+}
+
+function setupPanelResize() {
+  const panel = $('#sanPanel'), handle = $('#sanResize');
+  if (!panel || !handle) return;
+  let startY = 0, startH = 0, dragging = false;
+
+  handle.addEventListener('pointerdown', (e) => {
+    if (panelMobile()) return;
+    dragging = true;
+    startY = e.clientY;
+    startH = panel.getBoundingClientRect().height;
+    panel.classList.add('resizing');
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    applyPanelHeight(startH + (startY - e.clientY));   // bottom-anchored: drag up = taller
+  });
+  const end = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    panel.classList.remove('resizing');
+    try { handle.releasePointerCapture(e.pointerId); } catch {}
+    const h = Math.round(panel.getBoundingClientRect().height);
+    try { localStorage.setItem('sani-panel-h', String(h)); } catch {}
+    emit({ event: 'panel_resized', height: h });
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+
+  // re-clamp to the viewport if the window shrinks under a chosen height
+  window.addEventListener('resize', () => {
+    if (panel.hidden) return;
+    if (panelMobile()) { panel.style.height = ''; return; }
+    if (panel.style.height) applyPanelHeight(parseInt(panel.style.height, 10) || startH);
+  });
+}
+
 function openPanel() {
   $('#sanPanel').hidden = false;
   $('#sanLauncher').hidden = true;
+  restorePanelHeight();
   if (!state.opened) {
     state.opened = true;
     // Default persona is "Just looking" — we do NOT auto-switch from the page
@@ -2292,6 +2379,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // launcher + close
   $('#sanLauncher').addEventListener('click', openPanel);
   $('#sanClose').addEventListener('click', closePanel);
+  setupPanelResize();   // drag the panel's top edge to resize it vertically
 
   // light / dark theme toggle (initial theme is set pre-paint by the inline <head> script)
   document.querySelectorAll('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
@@ -2343,7 +2431,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sg) setSuggestions(sg);
   });
 
-  // industry dropdown — sets the vertical; Sani frames examples + grounds retrieval there
+  // industry dropdown — sets the vertical; Sanas.AI frames examples + grounds retrieval there
   const industrySel = $('#industrySelect');
   if (industrySel) industrySel.addEventListener('change', () => {
     const key = industrySel.value;
@@ -2395,10 +2483,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => { wi = (wi + 1) % words.length; roll.textContent = words[wi]; }, 2200);
   }
 
-  // track which marketing section is in view so opening Sani starts in-character
+  // track which marketing section is in view so opening Sanas.AI starts in-character
   watchPageContext();
 
-  // deep-link: ?persona=<key> starts Sani as that persona (explicit, so it sticks
+  // deep-link: ?persona=<key> starts Sanas.AI as that persona (explicit, so it sticks
   // and primes the matching ROI model). Works with or without ?open=.
   const personaParam = new URLSearchParams(location.search).get('persona');
   if (personaParam && PERSONAS[personaParam]) setPersona(personaParam, true);

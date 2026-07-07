@@ -2,7 +2,7 @@
 San backend — orchestrator surface for the Sanas Speech AI consultant.
 
 Endpoints:
-  GET  /api/health         -> SDK init status, mode (real|mock), active processors
+  GET  /api/health         -> SDK init status, mode (real|unavailable), active processors
   GET  /api/models         -> available models + sample rates
   POST /api/process        -> multipart audio upload -> Sanas-processed WAV
                               (header X-Sanas-* carries the ingress quality probe)
@@ -79,7 +79,7 @@ app.include_router(twilio_router)   # /api/twilio/* (human handoff + IVR via Twi
 @app.on_event("startup")
 def _startup() -> None:
     # Connect to the SIP endpoint off the startup path so the server binds and
-    # serves immediately; health reports mode='mock' until the connection is up.
+    # serves immediately; health reports mode='unavailable' until the SDK connects.
     threading.Thread(target=client.initialize, daemon=True).start()
     # Pre-warm the Whisper model so the first in-call "done" transcription is fast
     # (cold load is ~5s — too slow to catch a spoken command on a live call).
@@ -127,8 +127,8 @@ def auth_request(req: AuthRequest, _rl: None = Depends(rate_limit)) -> JSONRespo
         raise HTTPException(status_code=400, detail=f"Use your @{auth.domain()} email address.")
     tok = auth.issue_login(email)
     sent, err = mailer.send(
-        email, "Your Sani Call sign-in token",
-        f"Your Sani Call sign-in token is:\n\n    {tok}\n\n"
+        email, "Your Sanas.AI Call sign-in token",
+        f"Your Sanas.AI Call sign-in token is:\n\n    {tok}\n\n"
         f"Enter it in the app to sign in. It expires in {auth.CODE_TTL // 60} minutes "
         f"and can be used once. If you didn't request this, you can ignore this email.")
     if auth.DEV_ECHO:
@@ -150,7 +150,7 @@ def auth_verify(req: AuthVerify) -> JSONResponse:
 
 @app.post("/api/auth/signout")
 def auth_signout(authorization: str | None = Header(default=None),
-                 x_sani_auth: str | None = Header(default=None, alias="X-Sani-Auth")) -> JSONResponse:
+                 x_sani_auth: str | None = Header(default=None, alias="X-Sanas.AI-Auth")) -> JSONResponse:
     auth.sign_out(auth.token_from_headers(authorization, x_sani_auth))
     return JSONResponse({"ok": True})
 
@@ -442,6 +442,10 @@ async def process(file: UploadFile = File(...), model: str | None = None,
         raise HTTPException(status_code=400, detail="Empty upload")
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large")
+    # No mock: without the real engine we return no audio, not a synthetic stand-in.
+    if not client.available():
+        raise HTTPException(status_code=503,
+                            detail="Sanas engine unavailable — the real-time SDK is not connected.")
 
     model = model or client.model
     sr = MODEL_SAMPLE_RATES.get(model, client.sample_rate)
@@ -545,7 +549,7 @@ _RAG_EXTS = (".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".tex
 @app.post("/api/rag/upload")
 async def rag_upload(file: UploadFile = File(...), _: None = Depends(require_admin),
                      __: None = Depends(rate_limit)) -> JSONResponse:
-    """Ingest an unstructured document (PDF / DOCX / TXT / MD) so Sani can answer
+    """Ingest an unstructured document (PDF / DOCX / TXT / MD) so Sanas.AI can answer
     grounded in it. Parsed, chunked, and persisted to disk; shared across sessions.
     Admin-only (knowledge-base management); chat retrieval over the docs stays open."""
     name = file.filename or ""
@@ -650,7 +654,7 @@ def demo_book(req: DemoRequest) -> JSONResponse:
     print(f"[demo-book] lead from {name} <{email}> ({req.company or 'n/a'})", flush=True)
 
     # 1) internal notification to the owner (reply-To the contact so a reply reaches them)
-    notify_body = (f"New demo request from Sani (More Information).\n\n{detail}\n\n"
+    notify_body = (f"New demo request from Sanas.AI (More Information).\n\n{detail}\n\n"
                    f"Received: {ts}\nBooking link sent to the contact: {BOOKING_URL}\n")
     notify_ok, notify_err = mailer.send(DEMO_NOTIFY_EMAIL,
                                         f"New demo request — {name}" + (f", {req.company}" if req.company else ""),
@@ -709,7 +713,7 @@ def partner_apply(req: PartnerRequest) -> JSONResponse:
 
     notify_ok, notify_err = mailer.send(
         DEMO_NOTIFY_EMAIL, f"New partner application — {name}" + (f", {req.company}" if req.company else ""),
-        f"New partner application from Sani.\n\n{detail}\n\nReceived: {ts}\nPrograms: {PARTNERS_URL}\n",
+        f"New partner application from Sanas.AI.\n\n{detail}\n\nReceived: {ts}\nPrograms: {PARTNERS_URL}\n",
         reply_to=email)
     first = req.first_name.strip() or "there"
     contact_ok, _ = mailer.send(
@@ -776,11 +780,12 @@ async def stream(ws: WebSocket):
     """Live mic path. Client streams int16 PCM frames; we feed them to a
     persistent Sanas processor and stream processed int16 back, in real time.
     Control messages (JSON text): {"type":"config","model":..,"enabled":bool}.
-    When disabled (or in mock mode) we echo the raw input so the user A/Bs their
-    own voice against the model."""
+    When the model is toggled OFF we echo the raw input so the user A/Bs their own
+    voice against the model. The real SDK is required — if it's unavailable the
+    stream reports so and sends no audio (there is no mock)."""
     await ws.accept()
     loop = asyncio.get_running_loop()
-    DEFAULT_FRAME = 320  # 20ms @ 16k, used for mock/bypass framing
+    DEFAULT_FRAME = 320  # 20ms @ 16k, framing for the model-off raw bypass
     sess = None
     enabled = True
     model = client.model
@@ -829,7 +834,9 @@ async def stream(ws: WebSocket):
             if data is None:
                 continue
             ints = np.frombuffer(data, dtype=np.int16)
-            if not enabled or sess is None:           # bypass: raw monitor / mock
+            if sess is None:                          # engine unavailable — no processing, no fake audio
+                continue
+            if not enabled:                           # model OFF: raw monitor for an honest A/B
                 await ws.send_bytes(ints.tobytes()); continue
             buf = np.concatenate([residual, ints])
             n = len(buf) // frame

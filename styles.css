@@ -181,6 +181,21 @@ footer.site-footer { border-top: 1px solid var(--gray-02); padding: 40px 0 80px;
 }
 .san-panel[hidden] { display: none; }
 
+/* Drag handle on the top edge. The panel is bottom-anchored, so dragging up
+   makes it taller and reveals more of the conversation (.san-log flexes to fill). */
+.san-resize-handle {
+  position: absolute; top: 0; left: 0; right: 0; height: 12px;
+  cursor: ns-resize; z-index: 70; touch-action: none;
+}
+.san-resize-handle::after {
+  content: ""; position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  width: 44px; height: 4px; border-radius: 2px;
+  background: rgba(255, 255, 255, .4); opacity: 0; transition: opacity .15s;
+}
+.san-panel:hover .san-resize-handle::after, .san-resize-handle:hover::after { opacity: 1; }
+.san-panel.resizing { user-select: none; }
+.san-panel.resizing .san-log { scroll-behavior: auto; }
+
 /* Header */
 .san-header { background: var(--sanas-black); color: var(--sanas-white); padding: 16px 18px; display: flex; align-items: center; gap: 12px; }
 .san-avatar { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--wave-grad); flex: none; }
@@ -429,6 +444,7 @@ html[data-theme="dark"] .bubble code { background: rgba(255,255,255,.12); }
 @media (max-width: 560px) {
   .features { grid-template-columns: 1fr; }
   .san-panel { right: 0; bottom: 0; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .san-resize-handle { display: none; }   /* panel is full-screen on mobile — nothing to resize */
 }
 
 /* ---------- ASR recognition comparison (real Whisper) ---------- */

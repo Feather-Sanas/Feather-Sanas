@@ -2,7 +2,7 @@
 """
 Index https://www.sanas.ai (product/industry/science pages + the blog & news posts)
 AND the help center https://help.sanas.ai (Document360 — every article listed in its
-llms.txt) into server/web_index.json. The backend uses it to ground Sani's chat
+llms.txt) into server/web_index.json. The backend uses it to ground Sanas.AI's chat
 answers and cite real page links.
 
 Run (needs network):

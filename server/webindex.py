@@ -1,6 +1,6 @@
 """
 Lexical retrieval over the indexed sanas.ai content (server/web_index.json,
-built by scripts/index_site.py). Sani uses it to ground chat answers and return
+built by scripts/index_site.py). Sanas.AI uses it to ground chat answers and return
 real page links to cite. Degrades to empty results if the index is absent.
 """
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """
-Pluggable response cache for Sani's Claude replies.
+Pluggable response cache for Sanas.AI's Claude replies.
 
 The expensive part of a chat turn is the Claude call. A demo gets the same
 questions over and over ("what does Sanas do?", "how low is the latency?"), so

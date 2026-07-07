@@ -1,4 +1,4 @@
-# Single-host deploy: uvicorn (the Sani backend) behind Caddy for automatic HTTPS.
+# Single-host deploy: uvicorn (the Sanas.AI backend) behind Caddy for automatic HTTPS.
 # Caddy terminates TLS and reverse-proxies to the backend over the internal network,
 # transparently upgrading WebSockets (live mic + Twilio media streams) with no idle
 # timeout. Run with:  SITE_ADDRESS=sani.example.com docker compose up -d --build
