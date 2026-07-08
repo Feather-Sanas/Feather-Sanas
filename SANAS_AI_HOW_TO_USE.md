@@ -30,7 +30,7 @@ Click the circular Sanas icon in the bottom-right corner of the page. The chat p
 
 | Control | What it does |
 |---|---|
-| **# button** | Opens the internal observability/admin drawer |
+| **# button** | Opens the internal session-trace drawer (read-only) |
 | **X button** | Closes the chat panel |
 | **I'M A… dropdown** | Sets your persona — changes Sanas.AI's register and focus |
 | **Industry… dropdown** | Filters responses and case studies to a specific vertical |
@@ -103,13 +103,11 @@ Enter your phone number, select a mode, pick a Sanas model, then click **Call me
 
 ---
 
-## 6. The Observability / Admin Drawer
+## 6. The Session-Trace Drawer
 
-Click the **#** button in the top-right of the chat header.
+Click the **#** button in the top-right of the chat header. It shows the live per-turn event stream (§7.8 schema): turn ID, timestamp, event type, detected persona, and page context. It is **read-only** — there is no admin login or upload here.
 
-**Knowledge base (RAG)** — Admins log in with `RAG_ADMIN_PASSWORD` (`server/.env`) to unlock document upload. Uploaded PDFs, DOCX, or text files become grounding context for every visitor — cited as "from your documents" chips.
-
-**Session trace** — Live per-turn event stream (§7.8 schema): turn ID, timestamp, event type, detected persona, and page context.
+**Admin console (separate page).** Knowledge-base management and marketing analytics live at **`/admin.html`** on the backend, not in the chat. Sign in with `RAG_ADMIN_PASSWORD` (`server/.env`) to drag-and-drop unstructured documents (PDF / DOCX / TXT / MD) that become grounding context for every visitor, manage/clear the index, and view marketing analytics (visitor profiles, events, chat threads, first-touch attribution, and an events.jsonl export).
 
 ---
 

@@ -85,6 +85,8 @@ processing). The rest of the app (chat, curated before/after demos, RAG) still w
 |------|---------|
 | `index.html` / `styles.css` / `app.js` | The Sanas.AI front-end (marketing surface + chat consultant) |
 | `server/main.py` | FastAPI orchestrator: `/api/process`, `/api/chat`, `/api/health`, `/api/models`, `/api/rag/*` (admin-gated), `/api/admin/*`, `/api/demo/*`; serves the front-end |
+| `admin.html` | Admin console (`/admin.html`): sign-in, knowledge-base upload/manage, marketing analytics (profiles, events, chat threads, export) |
+| `server/analytics.py` | First-party marketing capture: events + profiles + chat threads under `SAN_DATA_DIR`, optional CDP webhook forwarding |
 | `server/mailer.py` | Tiny SMTP sender for the "More Information / book a demo" flow (creds in `.env`; no-ops gracefully when unset) |
 | `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples); when the SDK/creds are absent, processing is reported unavailable (no mock) |
 | `server/llm.py` | Sanas.AI's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
@@ -196,12 +198,13 @@ an **admin**. Upload accepts **PDF, DOCX, TXT, and Markdown**; the backend parse
 (pypdf / python-docx / plain decode), splits it into ~2 kB chunks, and indexes them with
 the **same lexical scoring as the site index** — no embeddings service, no per-request cost.
 
-- **Admin-gated upload** — managing the knowledge base is **admin-only**. Set
-  `RAG_ADMIN_PASSWORD` in `server/.env`, then log in via the **⌗ panel** (top-right of Sanas.AI):
-  `POST /api/admin/login` issues an in-memory bearer token (cleared on restart). Only then
-  does the composer's document button appear, and the admin panel shows the indexed docs +
-  **Clear all** / **Log out**. **Retrieval over already-uploaded docs stays open to every
-  visitor** — only upload/management is gated. (Unset password = upload locked, "not configured".)
+- **Admin-gated upload, on a dedicated console** — managing the knowledge base is
+  **admin-only** and lives on **`/admin.html`** (not in the chat app). Set
+  `RAG_ADMIN_PASSWORD` in `server/.env`, open `/admin.html`, and sign in:
+  `POST /api/admin/login` issues an in-memory bearer token (cleared on restart). The console
+  has drag-and-drop upload, the indexed-doc list, **Clear all**, and the **marketing
+  analytics** views (profiles, events, chat threads, export). **Retrieval over
+  already-uploaded docs stays open to every visitor** — only upload/management is gated.
 - **`POST /api/rag/upload`** (admin) ingests a file → `{doc_id, name, chunks, total_docs}`.
   **`GET /api/rag/docs`** (admin) lists what's indexed; **`POST /api/rag/clear`** (admin) wipes it.
   All three require the `X-Admin-Token` header; chat retrieval needs no token.
@@ -216,6 +219,28 @@ the **same lexical scoring as the site index** — no embeddings service, no per
 - **Honesty** — a near-zero lexical match is dropped (`min_score`), so an irrelevant
   document doesn't get forced into the context; if the docs don't answer the question,
   Sanas.AI says so rather than fabricating a fit.
+
+## Marketing analytics (first-party capture)
+
+The app captures its own events — no third-party pixel required — so marketing owns the data.
+
+- **Durable profile per visitor.** Each browser gets an anonymous `sanas_profile_id`
+  (localStorage). The front-end batches every `emit()` — **page views with UTM + referrer
+  first-touch attribution**, persona/industry picks, audio plays, ROI runs, demo/partner
+  submissions, and **every chat turn** — to `POST /api/events` (own rate bucket; byte-capped;
+  written off the event loop). Stored append-only as `events.jsonl` + `profiles.json` under
+  `SAN_DATA_DIR` (the persisted volume).
+- **Identity resolution.** Submitting the demo or partner form sends the `profile_id`, so the
+  backend merges email/name/company onto the anonymous profile — the visitor's whole
+  pre-conversion journey (events + chat threads) becomes a named lead.
+- **Admin console (`/admin.html`).** Sign in (`RAG_ADMIN_PASSWORD`) to see summary tiles,
+  a profiles table, per-profile events + **reconstructed chat threads**, first-touch source,
+  and an `events.jsonl` **export**. All `/api/analytics/*` reads require `X-Admin-Token`.
+- **Fan out to marketing tools.** Set `SAN_EVENTS_WEBHOOK` to a CDP / HTTP collector
+  (Segment, RudderStack, …) and every accepted batch forwards in realtime — the CDP then
+  handles identity stitching, consent, and destinations (warehouse, CRM, ad platforms).
+  Unset = store-only (use the export). `/data` now holds PII (lead emails + transcripts) —
+  see [DEPLOY_AWS.md](DEPLOY_AWS.md) for the retention/backup note.
 
 ## Persona & deep-links
 

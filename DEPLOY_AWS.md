@@ -80,7 +80,7 @@ managed services you opt into. Give IT this list.
 | Service | Why | Specific access to grant |
 |---|---|---|
 | **EC2** | Runs the backend container host (x86-64). | Launch a `t3.small`/`t3.medium` (or `c6i`/`m6i`) **x86-64** instance; attach EBS gp3. IAM: `ec2:RunInstances`, `ec2:Describe*`, plus an **instance role** (below). |
-| **EBS** | Persists the RAG store (`/data`) and Caddy TLS certs across restarts. | One gp3 volume (root 20 GB is enough); enable snapshots if the uploaded-doc index matters. |
+| **EBS** | Persists `/data` (RAG store **plus** the analytics `events.jsonl` / `profiles.json` — lead PII + chat transcripts) and Caddy TLS certs across restarts. | One gp3 volume (root 20 GB is enough); **enable snapshots** — `/data` now holds PII, so treat it as a backup/retention/GDPR surface. |
 | **Elastic IP** | Stable public IP so the Twilio webhook URL and DNS don't change across stop/start. | `ec2:AllocateAddress` + `AssociateAddress` (1 EIP). |
 | **Route 53** (or any DNS) | `A` record → Elastic IP, so Caddy can issue a Let's Encrypt cert and Twilio has a stable HTTPS/WSS origin. | A hosted zone + one `A` record. (External registrars work too.) |
 | **VPC security group — outbound** | The backend must reach Anthropic, Sanas, Twilio, SMTP, and (first run) Hugging Face. | **Outbound 443** to `api.anthropic.com`, `api.twilio.com`, Twilio Media Streams, `huggingface.co`; **outbound to `SANAS_ENDPOINT`** (SIP signalling + RTP media — confirm ports with Sanas); **outbound 587/465** to your SMTP host. Default allow-all egress satisfies all of these. |
@@ -210,7 +210,7 @@ the full list.
 |---|---|---|---|
 | **Prompt caching** | Anthropic side (`server/llm.py`) | on | Two `cache_control` breakpoints — the large `SHARED_SYSTEM` block (shared across all personas) and the per-persona block — so the stable prefix is billed at ~0.1× on repeat turns. Per-turn retrieved context is appended **after** the breakpoints (uncached, as it must be). |
 | **Response cache** | `server/response_cache.py`, wired into `/api/chat` + `/api/chat/stream` | on | A repeat question (same persona / skeptic / industry / history / grounding) is served from cache with **zero** Claude call. A cache hit on the streaming endpoint replays the stored reply as a stream (`X-San-Cached: 1`) so the UX is identical. |
-| **Per-IP rate limit** | `server/ratelimit.py`, on `/api/chat*`, `/api/process`, `/api/asr`, `/api/rag/upload` | 60 req / 60 s / IP | Stops one client or bot from running up the bill or saturating the box. Returns `429` + `Retry-After`. X-Forwarded-For-aware (correct behind Caddy / an ALB). Twilio webhooks + static/health are never limited. |
+| **Per-IP rate limit** | `server/ratelimit.py`, on `/api/chat*`, `/api/process`, `/api/asr`, `/api/rag/upload` (and `/api/events` on its own higher bucket) | 60 req / 60 s / IP (events: `SAN_EVENTS_RATE_LIMIT`, default 240) | Stops one client or bot from running up the bill or saturating the box. Returns `429` + `Retry-After`. X-Forwarded-For-aware (correct behind Caddy / an ALB). Twilio webhooks + static/health are never limited. |
 
 **Single host (default):** both the response cache and the rate-limit counters live
 **in-process** (no infra, no dependency). Perfect for one EC2 box. `/api/health` reports the
@@ -294,9 +294,9 @@ When one box isn't enough, or you want managed runtime instead of an EC2 you pat
   2. **Live-call dicts** (`STREAMS`/`BRIDGES`/`DEMO`) — a call's media WebSocket and its
      `/api/twilio/toggle` REST call must hit the **same instance**, or the toggle can't find
      the session. Use ALB **sticky sessions**, or move this state to Redis too.
-  3. **Admin tokens + lead lists** — in RAM today; back them with Redis/DynamoDB if they must
+  3. **Admin tokens** — in RAM today; back them with Redis/DynamoDB if they must
      survive a redeploy or be shared.
-- **RAG store** (`rag_store.json` under `SAN_DATA_DIR=/data`) is a local file. On Fargate, mount
+- **`/data`** (`rag_store.json` + analytics `events.jsonl`/`profiles.json` under `SAN_DATA_DIR=/data`, the last two holding lead PII + chat transcripts) is local files. On Fargate, mount
   **EFS** so all tasks share it (or accept that each task has its own copy and re-upload).
 
 > Out of scope for this doc (and this app today): CloudFormation/Terraform IaC, multi-region
