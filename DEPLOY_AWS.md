@@ -154,7 +154,7 @@ sudo usermod -aG docker $USER && newgrp docker      # docker without sudo
 
 ### 4.4 Code + secrets + SDK onto the box
 ```bash
-git clone https://github.com/Feather-Sanas/Feather-Sanas.git sani && cd sani
+git clone https://github.com/Feather-Sanas/Sanas-Chatbot.git sani && cd sani
 
 # Secrets — copy your filled-in env up from your laptop (do NOT commit it):
 #   scp server/.env  ubuntu@<elastic-ip>:~/sani/server/.env
