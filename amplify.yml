@@ -1,5 +1,5 @@
 # AWS Amplify Hosting build spec — deploys ONLY the static front-end.
-# The backend (FastAPI: native Sanas SDK, WebSockets, Twilio, RAG) is NOT hosted
+# The backend (FastAPI: native Sanas SDK, WebSockets, RAG) is NOT hosted
 # here — Amplify is serverless and can't run it. Host the backend separately
 # (EC2 / App Runner / ECS via server/Dockerfile) and point the front-end at it by
 # setting the SAN_API_BASE environment variable in the Amplify console, e.g.

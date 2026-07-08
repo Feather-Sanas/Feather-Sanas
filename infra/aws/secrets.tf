@@ -3,6 +3,6 @@
 # Terraform state or version control. The instance reads it at boot.
 resource "aws_secretsmanager_secret" "env" {
   name                    = var.secret_name
-  description             = "Sani backend server/.env (populate out-of-band; not managed by Terraform)"
+  description             = "Sanas.AI backend server/.env (populate out-of-band; not managed by Terraform)"
   recovery_window_in_days = 0 # demo: allow immediate delete/recreate
 }

@@ -3,7 +3,7 @@
 This is the production reference for running Sanas.AI on AWS. It has two layers:
 
 - **Demo baseline** — one EC2 instance behind Caddy. Cheapest thing that runs every
-  feature (native Sanas SDK, WebSockets, Claude, Twilio). Start here.
+  feature (native Sanas SDK, WebSockets, Claude, live-mic streaming). Start here.
 - **Production hardening / scale** — Amplify for the front-end, Secrets Manager for
   credentials, SES for the book-a-demo email, ElastiCache (Redis) for the shared
   response cache + rate limiter, and a managed-services path (App Runner / ECS Fargate)
@@ -37,14 +37,13 @@ This is the production reference for running Sanas.AI on AWS. It has two layers:
                          │  └───────────────────────────────────────────────┘   │
                          │                       │ HTTPS/WSS (CORS *)            │
                          │                       ▼                              │
-  Twilio ──► Route 53 ──►│   Elastic IP ──► EC2 (x86-64, public subnet)         │
-  (webhooks, media WSS)  │                   └── Docker Compose:                │
+                         │   Elastic IP ──► EC2 (x86-64, public subnet)         │
+                         │                   └── Docker Compose:                │
                          │                         caddy  (:80/:443 auto-TLS)   │
                          │                           └─► san (uvicorn :8000)    │
                          │                                 ├─ Sanas SDK (SIP/RTP)│
                          │                                 ├─ Claude (Anthropic) │
                          │                                 ├─ faster-whisper ASR │
-                         │                                 ├─ Twilio REST/Media  │
                          │                                 └─ response cache +   │
                          │                                    rate limit (RAM)   │
                          │   ┌─ optional, for production / scale ────────────┐   │
@@ -55,23 +54,22 @@ This is the production reference for running Sanas.AI on AWS. It has two layers:
 ```
 
 The backend is a **single long-running process** holding things a serverless function
-can't: the native Sanas SDK's SIP/RTP sessions, live-mic and Twilio-media **WebSockets**,
-and **in-memory state** (admin tokens, demo/partner leads, live-call `STREAMS`/`BRIDGES`,
-the response cache, and rate-limit counters). That's why the backend is a container host,
+can't: the native Sanas SDK's SIP/RTP sessions, the live-mic **WebSocket**,
+and **in-memory state** (admin tokens, demo/partner leads, the response cache, and
+rate-limit counters). That's why the backend is a container host,
 not Lambda. The front-end is just four static files, so it can ride a CDN (Amplify) or be
 served by the same backend — your call (§6).
 
 > **One instance = in-memory state is per-process and dies on restart.** A redeploy or
-> restart drops in-flight live/bridge calls, logs out admins, and empties the response
-> cache and lead lists. Acceptable for a demo. To run more than one backend instance you
-> must move that shared state to ElastiCache and add sticky routing for the live-call
-> dicts — see §8.
+> restart logs out admins and empties the response cache and lead lists. Acceptable for a
+> demo. To run more than one backend instance you must move that shared state to
+> ElastiCache — see §8.
 
 ---
 
 ## 2. AWS services + the access your IT team must grant
 
-The app makes **no AWS API calls in code** — it talks to Anthropic, Sanas, Twilio, and an
+The app makes **no AWS API calls in code** — it talks to Anthropic, Sanas, and an
 SMTP server over the open internet. So "access" is mostly *network egress* plus the
 managed services you opt into. Give IT this list.
 
@@ -81,19 +79,19 @@ managed services you opt into. Give IT this list.
 |---|---|---|
 | **EC2** | Runs the backend container host (x86-64). | Launch a `t3.small`/`t3.medium` (or `c6i`/`m6i`) **x86-64** instance; attach EBS gp3. IAM: `ec2:RunInstances`, `ec2:Describe*`, plus an **instance role** (below). |
 | **EBS** | Persists `/data` (RAG store **plus** the analytics `events.jsonl` / `profiles.json` — lead PII + chat transcripts) and Caddy TLS certs across restarts. | One gp3 volume (root 20 GB is enough); **enable snapshots** — `/data` now holds PII, so treat it as a backup/retention/GDPR surface. |
-| **Elastic IP** | Stable public IP so the Twilio webhook URL and DNS don't change across stop/start. | `ec2:AllocateAddress` + `AssociateAddress` (1 EIP). |
-| **Route 53** (or any DNS) | `A` record → Elastic IP, so Caddy can issue a Let's Encrypt cert and Twilio has a stable HTTPS/WSS origin. | A hosted zone + one `A` record. (External registrars work too.) |
-| **VPC security group — outbound** | The backend must reach Anthropic, Sanas, Twilio, SMTP, and (first run) Hugging Face. | **Outbound 443** to `api.anthropic.com`, `api.twilio.com`, Twilio Media Streams, `huggingface.co`; **outbound to `SANAS_ENDPOINT`** (SIP signalling + RTP media — confirm ports with Sanas); **outbound 587/465** to your SMTP host. Default allow-all egress satisfies all of these. |
+| **Elastic IP** | Stable public IP so the DNS record doesn't change across stop/start. | `ec2:AllocateAddress` + `AssociateAddress` (1 EIP). |
+| **Route 53** (or any DNS) | `A` record → Elastic IP, so Caddy can issue a Let's Encrypt cert (the UI/API need HTTPS). | A hosted zone + one `A` record. (External registrars work too.) |
+| **VPC security group — outbound** | The backend must reach Anthropic, Sanas, SMTP, and (first run) Hugging Face. | **Outbound 443** to `api.anthropic.com`, `huggingface.co`; **outbound to `SANAS_ENDPOINT`** (SIP signalling + RTP media — confirm ports with Sanas); **outbound 587/465** to your SMTP host. Default allow-all egress satisfies all of these. |
 | **VPC security group — inbound** | Public HTTPS + your SSH. | **443 + 80** from `0.0.0.0/0` (Caddy / cert issuance); **22** from your IP only. |
 
 ### Recommended for production
 
 | Service | Why | Specific access to grant |
 |---|---|---|
-| **Secrets Manager** (or SSM Parameter Store) | Hold `ANTHROPIC_API_KEY`, `SANAS_*`, `TWILIO_*`, `SMTP_*`, `RAG_ADMIN_PASSWORD` instead of a plaintext `.env` on the box. | Create secrets; grant the **EC2 instance role** `secretsmanager:GetSecretValue` (scoped to these secret ARNs) — or `ssm:GetParameters` for SecureString params. |
+| **Secrets Manager** (or SSM Parameter Store) | Hold `ANTHROPIC_API_KEY`, `SANAS_*`, `SMTP_*`, `RAG_ADMIN_PASSWORD` instead of a plaintext `.env` on the box. | Create secrets; grant the **EC2 instance role** `secretsmanager:GetSecretValue` (scoped to these secret ARNs) — or `ssm:GetParameters` for SecureString params. |
 | **SES** | Production SMTP for the book-a-demo / partner emails (no app password to manage). | Verify a sending domain/identity; create SES **SMTP credentials**; move the account out of the SES sandbox. The app uses SES via plain SMTP (§7) — no IAM call needed at runtime. |
 | **ElastiCache (Redis)** | Shared response cache + rate limiter when you run more than one backend instance, and cache survival across restarts. | One small node (e.g. `cache.t4g.micro`); allow the backend SG **outbound 6379** to the cache SG. Point the app at it with `SAN_REDIS_URL` (§5). |
-| **CloudWatch Logs** | Capture the container's stdout (call state, model switches, cache fallbacks). | The EC2 instance role needs `logs:CreateLogStream` + `logs:PutLogEvents` (the CloudWatch agent / ECS log driver handles this). |
+| **CloudWatch Logs** | Capture the container's stdout (live-mic/session state, model switches, cache fallbacks). | The EC2 instance role needs `logs:CreateLogStream` + `logs:PutLogEvents` (the CloudWatch agent / ECS log driver handles this). |
 | **Amplify Hosting** | CDN-served front-end on its own domain. | Connect the GitHub repo; set the `SAN_API_BASE` build env var (§6). Amplify provisions its own CloudFront + S3 — no extra IAM for you. |
 | **IAM (instance role)** | The single principal the box assumes. | One EC2 instance role bundling the Secrets Manager **read** + CloudWatch Logs **write** above. **Least privilege: read-only on exactly the secret ARNs, no `*`.** No S3/DynamoDB/RDS permissions are needed — the app doesn't call them. |
 
@@ -131,7 +129,7 @@ on the same URL. faster-whisper (ASR on uploads) is memory-hungry — `t3.small`
   Without it, audio processing is **unavailable** — `/api/process` returns 503 and the UI
   says so (there is no mock/synthetic processing). The macOS wheel you have locally will not
   work on the Linux box.
-- A registered domain you can point at the instance (HTTPS + stable Twilio URLs).
+- A registered domain you can point at the instance (for HTTPS on the UI/API).
 - Your filled-in `server/.env` (never committed) — see [`server/.env.example`](server/.env.example).
 
 ### 4.1 Launch the instance
@@ -139,7 +137,7 @@ on the same URL. faster-whisper (ASR on uploads) is memory-hungry — `t3.small`
 - Type: `t3.small` (or `t3.medium` to keep ASR comfortable). Storage: 20 GB gp3.
 - Allocate an **Elastic IP** and associate it (stable URL across stop/start).
 - **Security group** inbound: `443` + `80` from `0.0.0.0/0`; `22` from **your IP only**.
-  Outbound: leave default allow-all (Claude, Sanas SIP/RTP, Twilio, SMTP, first-run model download).
+  Outbound: leave default allow-all (Claude, Sanas SIP/RTP, SMTP, first-run model download).
 
 ### 4.2 DNS
 In Route 53 (or your registrar), create an **A record** `sani.example.com` → the Elastic IP.
@@ -163,17 +161,11 @@ chmod 600 server/.env
 # Linux SDK tarball into the build context:
 #   scp sanas_remote_sdk_linux_x86-64_<ver>.tar.gz  ubuntu@<elastic-ip>:~/sani/server/vendor/
 ```
-In `server/.env`, set the public base to your domain:
-```ini
-PUBLIC_BASE_URL=https://sani.example.com
-```
-
 ### 4.5 Bring it up (Caddy auto-issues the TLS cert)
 ```bash
 SITE_ADDRESS=sani.example.com docker compose up -d --build
 ```
-`SITE_ADDRESS` is the **bare domain** (Caddy/cert); `PUBLIC_BASE_URL` is the **https URL**
-(the app, for TwiML + `wss://`). Verify:
+`SITE_ADDRESS` is the **bare domain** Caddy uses to provision the TLS cert. Verify:
 ```bash
 curl -s https://sani.example.com/api/health | python3 -m json.tool
 #  -> mode:"real", sdk_available:true, llm_available:true,
@@ -182,21 +174,6 @@ docker compose logs -f caddy        # watch cert issuance
 ```
 Tip: persist `SITE_ADDRESS` in a root-level `.env` so restarts don't need it inline (Compose
 auto-loads it for variable substitution).
-
-### 4.6 Point Twilio at the domain (replaces the dev ngrok tunnel)
-```bash
-cd server && set -a && . ./.env && set +a
-# Number's Voice webhook:
-curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" -X POST \
-  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/IncomingPhoneNumbers/<PN_SID>.json" \
-  --data-urlencode "VoiceUrl=$PUBLIC_BASE_URL/api/twilio/voice" --data-urlencode "VoiceMethod=POST"
-# TwiML App Voice URL (browser voice):
-curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" -X POST \
-  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Applications/$TWILIO_TWIML_APP_SID.json" \
-  --data-urlencode "VoiceUrl=$PUBLIC_BASE_URL/api/twilio/voice" --data-urlencode "VoiceMethod=POST"
-```
-A real domain means you set this **once** — no per-session re-pointing. See
-[TWILIO_SETUP.md](TWILIO_SETUP.md) for the full telephony checklist.
 
 ---
 
@@ -210,7 +187,7 @@ the full list.
 |---|---|---|---|
 | **Prompt caching** | Anthropic side (`server/llm.py`) | on | Two `cache_control` breakpoints — the large `SHARED_SYSTEM` block (shared across all personas) and the per-persona block — so the stable prefix is billed at ~0.1× on repeat turns. Per-turn retrieved context is appended **after** the breakpoints (uncached, as it must be). |
 | **Response cache** | `server/response_cache.py`, wired into `/api/chat` + `/api/chat/stream` | on | A repeat question (same persona / skeptic / industry / history / grounding) is served from cache with **zero** Claude call. A cache hit on the streaming endpoint replays the stored reply as a stream (`X-San-Cached: 1`) so the UX is identical. |
-| **Per-IP rate limit** | `server/ratelimit.py`, on `/api/chat*`, `/api/process`, `/api/asr`, `/api/rag/upload` (and `/api/events` on its own higher bucket) | 60 req / 60 s / IP (events: `SAN_EVENTS_RATE_LIMIT`, default 240) | Stops one client or bot from running up the bill or saturating the box. Returns `429` + `Retry-After`. X-Forwarded-For-aware (correct behind Caddy / an ALB). Twilio webhooks + static/health are never limited. |
+| **Per-IP rate limit** | `server/ratelimit.py`, on `/api/chat*`, `/api/process`, `/api/asr`, `/api/rag/upload` (and `/api/events` on its own higher bucket) | 60 req / 60 s / IP (events: `SAN_EVENTS_RATE_LIMIT`, default 240) | Stops one client or bot from running up the bill or saturating the box. Returns `429` + `Retry-After`. X-Forwarded-For-aware (correct behind Caddy / an ALB). Static/health are never limited. |
 
 **Single host (default):** both the response cache and the rate-limit counters live
 **in-process** (no infra, no dependency). Perfect for one EC2 box. `/api/health` reports the
@@ -249,13 +226,10 @@ separate domain.
    `config.js` — never the `server/` source, `.env`, scripts, or docs.
 2. **Point it at the backend.** App settings → Environment variables → set
    `SAN_API_BASE = https://sani.example.com` (your EC2 origin). The build bakes it into
-   `config.js`; the app reads `window.SAN_API_BASE` at runtime, and the live-mic + Twilio
-   WebSockets connect to `wss://<that host>` automatically. CORS is already open
+   `config.js`; the app reads `window.SAN_API_BASE` at runtime, and the live-mic
+   WebSocket connects to `wss://<that host>` automatically. CORS is already open
    (`allow_origins=["*"]`), so the Amplify origin reaches the backend.
 3. **Custom domain (optional).** Add it in Amplify (it manages the CloudFront cert + CNAME).
-4. **Twilio stays pointed at the backend.** `PUBLIC_BASE_URL` and the TwiML App Voice URL must
-   be the **backend** origin (not the Amplify URL) — browser calling dials the backend's
-   `/api/twilio/*`.
 
 ---
 
@@ -288,13 +262,10 @@ When one box isn't enough, or you want managed runtime instead of an EC2 you pat
   to **ECR** (the Sanas SDK tarball is baked in at build, so it's not a registry pull-through).
   Front with an **ALB** (HTTPS termination via ACM; target group over HTTP to the container;
   WebSocket upgrade is supported). This replaces Caddy.
-- **Shared state is the real work, not the runtime.** Before going multi-instance, three
+- **Shared state is the real work, not the runtime.** Before going multi-instance, two
   per-process things must move or be pinned:
   1. **Response cache + rate limiter** → ElastiCache (Redis) via `SAN_REDIS_URL` (§5). Done.
-  2. **Live-call dicts** (`STREAMS`/`BRIDGES`/`DEMO`) — a call's media WebSocket and its
-     `/api/twilio/toggle` REST call must hit the **same instance**, or the toggle can't find
-     the session. Use ALB **sticky sessions**, or move this state to Redis too.
-  3. **Admin tokens** — in RAM today; back them with Redis/DynamoDB if they must
+  2. **Admin tokens** — in RAM today; back them with Redis/DynamoDB if they must
      survive a redeploy or be shared.
 - **`/data`** (`rag_store.json` + analytics `events.jsonl`/`profiles.json` under `SAN_DATA_DIR=/data`, the last two holding lead PII + chat transcripts) is local files. On Fargate, mount
   **EFS** so all tasks share it (or accept that each task has its own copy and re-upload).
@@ -316,7 +287,7 @@ When one box isn't enough, or you want managed runtime instead of an EC2 you pat
 | Resume | **Start** the instance; Compose returns via `restart: unless-stopped` |
 
 ## 10. Notes & limits
-- **Single instance / in-memory state** — live mic + Twilio bridge sessions, admin logins, the
+- **Single instance / in-memory state** — live-mic sessions, admin logins, the
   response cache, and lead lists don't survive a restart or redeploy. Fine for demos; §8 is the
   path past it.
 - **`mode:"unavailable"`** from `/api/health` is the tell that the SDK tarball is missing or

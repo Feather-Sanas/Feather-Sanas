@@ -6,15 +6,15 @@ Infrastructure-as-code for the split deploy in [`../../DEPLOY_AWS.md`](../../DEP
 - **Backend → one x86-64 EC2** behind **Caddy** (auto-HTTPS), running the app via `docker-compose`.
 - Supporting: **Secrets Manager** (the backend `server/.env`), **S3** (the Sanas Linux SDK tarball), **Route 53** (API A record + SES DNS), **SES** (book-a-demo email), least-privilege **IAM** + **SSM Session Manager**.
 
-Amplify cannot run the backend — it's serverless, and the backend needs a long-running process for the native Sanas SDK's SIP/RTP, the WebSockets (live mic + Twilio media), and in-memory call state. Hence the split.
+Amplify cannot run the backend — it's serverless, and the backend needs a long-running process for the native Sanas SDK's SIP/RTP, the live-mic WebSocket, and in-memory state. Hence the split.
 
 ## What you must supply
 
 | Thing | Why |
 |---|---|
-| A **Route 53 hosted zone** for your domain (in this account) | HTTPS is mandatory — the Amplify (HTTPS) UI can't call a plain-HTTP backend, and Twilio/mic need it. |
+| A **Route 53 hosted zone** for your domain (in this account) | HTTPS is mandatory — the Amplify (HTTPS) UI can't call a plain-HTTP backend, and the live mic needs it. |
 | The **Sanas Linux x86-64 SDK tarball** | Installed at image-build time; without it audio processing is **unavailable** (`/api/process` returns 503 — there is no mock). |
-| The backend **`server/.env`** values | Anthropic key, Twilio creds, `RAG_ADMIN_PASSWORD`, `PUBLIC_BASE_URL`, Sanas creds (SMTP comes from Terraform outputs). |
+| The backend **`server/.env`** values | Anthropic key, `RAG_ADMIN_PASSWORD`, Sanas creds (SMTP comes from Terraform outputs). |
 | A **GitHub PAT** (`repo` + `admin:repo_hook`) | So Amplify can connect the repo. Skip with `enable_amplify = false`. |
 | **AWS credentials** for `terraform` | Provisioning rights (EC2/VPC/EIP, Route 53, S3, Secrets Manager, IAM, Amplify, SES). |
 
@@ -62,13 +62,9 @@ sudo bash /opt/sani/infra/aws/bootstrap-rerun.sh
 The secret's value is the **entire `server/.env` file as plain text** (the instance writes it verbatim to `server/.env`). Start from [`../../server/.env.example`](../../server/.env.example). The values Terraform generates:
 
 ```ini
-PUBLIC_BASE_URL=https://api.your-domain.com     # = `terraform output backend_url`
 ANTHROPIC_API_KEY=          # paste your Anthropic API key
 RAG_ADMIN_PASSWORD=...
-# Twilio (calling)
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-# ...the rest of the Twilio + Sanas keys from server/.env.example...
+# ...the Sanas SDK keys from server/.env.example...
 # Email via SES (from terraform outputs):
 SMTP_HOST=email-smtp.us-east-1.amazonaws.com     # = `terraform output ses_smtp_host`
 SMTP_PORT=587
@@ -81,8 +77,7 @@ Cost controls (`SAN_CACHE`, `SAN_RATE_LIMIT`, …) default sensibly — override
 
 ## After apply
 
-1. **Point Twilio at the backend** — set the number's Voice URL and the TwiML App Voice URL to `https://api.your-domain.com/api/twilio/voice` (see [`../../TWILIO_SETUP.md`](../../TWILIO_SETUP.md) / `DEPLOY_AWS.md` §6). A real domain means you do this once.
-2. **SES sandbox** — a new SES account only sends to verified addresses (`notify_email` is verified for you). To email real demo contacts, request **SES production access** in the console.
+1. **SES sandbox** — a new SES account only sends to verified addresses (`notify_email` is verified for you). To email real demo contacts, request **SES production access** in the console.
 3. **Verify:**
    ```bash
    curl -s "$(terraform output -raw backend_url)/api/health" | python3 -m json.tool

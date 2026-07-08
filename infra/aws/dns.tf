@@ -1,6 +1,6 @@
 # Your domain must already be a hosted zone in this account (data lookup, not
 # created here). A record points the API subdomain at the Elastic IP so Caddy can
-# get its Let's Encrypt cert and Twilio has a stable URL.
+# get its Let's Encrypt cert.
 data "aws_route53_zone" "main" {
   name = var.domain_name
 }

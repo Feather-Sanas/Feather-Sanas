@@ -1,5 +1,5 @@
 output "backend_url" {
-  description = "HTTPS backend origin. Set this as PUBLIC_BASE_URL in the .env secret and as the Twilio Voice/TwiML URLs' host."
+  description = "HTTPS backend origin (the public URL of the backend + API)."
   value       = "https://${local.api_fqdn}"
 }
 

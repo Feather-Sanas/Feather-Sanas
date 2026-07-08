@@ -1,10 +1,10 @@
 # Public 80/443 (Caddy: ACME challenge + HTTPS). SSH only if you pass a CIDR;
 # otherwise reach the box via SSM Session Manager (no open port). Egress is wide
-# open — the app must reach Claude, Twilio (REST + Media WSS), the Sanas SIP/RTP
+# open — the app must reach Claude, the Sanas SIP/RTP
 # endpoint, an SMTP relay, and Hugging Face (first-run Whisper download).
 resource "aws_security_group" "backend" {
   name_prefix = "${var.project}-backend-"
-  description = "Sani backend: public 80/443, optional SSH, all egress"
+  description = "Sanas.AI backend: public 80/443, optional SSH, all egress"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -35,7 +35,7 @@ resource "aws_security_group" "backend" {
   }
 
   egress {
-    description = "All outbound (Claude, Twilio, Sanas SIP/RTP, SMTP, Hugging Face)"
+    description = "All outbound (Claude, Sanas SIP/RTP, SMTP, Hugging Face)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
