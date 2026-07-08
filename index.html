@@ -96,12 +96,13 @@
     <div class="san-resize-handle" id="sanResize" role="separator" aria-orientation="horizontal"
          aria-label="Resize conversation panel" title="Drag to resize"></div>
 
-    <!-- internal debug / observability drawer (F11; SSO-gated in production) -->
+    <!-- internal debug / observability drawer (F11; SSO-gated in production).
+         Admin functions (knowledge-base upload, marketing analytics) live on the
+         dedicated admin console at /admin.html — not in the chat app. -->
     <div class="debug-drawer" id="debugDrawer" hidden>
       <button class="icon-btn debug-close" id="debugClose" aria-label="Close debug">✕</button>
-      <h4>Internal — admin &amp; session trace</h4>
-      <div class="meta">Admin functions are SSO-gated to Sanas employees in production. Every turn is also a traced event (§7.8), joinable with speech-engine sessions via the shared session-lineage schema.</div>
-      <div class="admin-panel" id="adminPanel"></div>
+      <h4>Internal — session trace</h4>
+      <div class="meta">Every turn is a traced event (§7.8), joinable with speech-engine sessions via the shared session-lineage schema. Knowledge-base and marketing admin: <a id="adminLink" href="admin.html" target="_blank" rel="noopener">admin console</a>.</div>
       <h4 class="trace-h">Session trace</h4>
       <div id="debugBody"></div>
     </div>
@@ -168,13 +169,13 @@
       <button class="upload-btn" id="sanUpload" title="Upload a clip (≤2 min)" aria-label="Upload an audio clip">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 21h14"/></svg>
       </button>
-      <!-- document upload lives in the admin (⌗) panel, not the composer -->
-      <input type="file" id="sanDocFile" accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain" hidden />
+      <!-- document upload for the knowledge base lives on /admin.html, not in the chat -->
       <textarea id="sanInput" rows="1" placeholder="Tell Sanas.AI what you’re trying to solve…" aria-label="Message Sanas.AI"></textarea>
       <button class="send-btn" id="sanSend" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
       </button>
     </div>
+    <div class="san-privacy">Conversations and site activity are recorded to improve Sanas and follow up on requests.</div>
   </section>
 
   <p class="sr-only">Session <span id="sanSession"></span></p>

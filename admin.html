@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Sanas.AI — Admin console</title>
+<style>
+  :root { --bg:#0a0a0c; --panel:#141418; --line:#26262c; --text:#f2f2f2; --dim:#9a9aa2;
+          --green:#44eca0; --red:#ff8a8a; --field:#1c1c22; --radius:12px; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:18px 26px; border-bottom:1px solid var(--line); }
+  header .dot { width:10px; height:10px; border-radius:50%; background:var(--green); }
+  header h1 { font-size:16px; font-weight:700; }
+  header .sub { color:var(--dim); font-size:12.5px; }
+  header .spacer { flex:1; }
+  main { max-width:1080px; margin:0 auto; padding:26px; display:grid; gap:22px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:20px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim); margin-bottom:14px; }
+  input, button, select { font:inherit; }
+  input[type=password], input[type=text] { background:var(--field); color:var(--text); border:1px solid var(--line);
+      border-radius:8px; padding:9px 12px; width:280px; max-width:100%; }
+  .btn { background:var(--green); color:#04140c; font-weight:700; border:none; border-radius:8px;
+         padding:9px 16px; cursor:pointer; }
+  .btn.ghost { background:transparent; color:var(--text); border:1px solid var(--line); font-weight:500; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .err { color:var(--red); font-size:12.5px; min-height:16px; margin-top:8px; }
+  .note { color:var(--dim); font-size:12.5px; margin-top:8px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--field); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card .num { font-size:24px; font-weight:800; }
+  .card .lbl { color:var(--dim); font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--dim); font-weight:600; font-size:11.5px; text-transform:uppercase;
+       letter-spacing:.06em; padding:8px 10px; border-bottom:1px solid var(--line); }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.click { cursor:pointer; } tr.click:hover td { background:rgba(255,255,255,.03); }
+  .pill { display:inline-block; background:var(--field); border:1px solid var(--line); border-radius:999px;
+          padding:2px 9px; font-size:11.5px; color:var(--dim); }
+  .pill.id { color:var(--green); border-color:rgba(68,236,160,.35); }
+  .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px; }
+  .thread { background:var(--field); border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:10px; }
+  .turn { padding:6px 0; border-bottom:1px dashed var(--line); } .turn:last-child { border-bottom:none; }
+  .turn .who { font-weight:700; font-size:12px; } .turn.user .who { color:var(--green); }
+  .evt { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11.5px; color:var(--dim);
+         padding:3px 0; border-bottom:1px dotted var(--line); word-break:break-all; }
+  #detail { display:none; }
+  .back { color:var(--green); cursor:pointer; background:none; border:none; font:inherit; padding:0; }
+  .doc { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .drop { border:1.5px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--dim);
+          cursor:pointer; transition:border-color .15s; margin-bottom:12px; }
+  .drop:hover, .drop.over { border-color:var(--green); color:var(--text); }
+  a { color:var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <h1>Sanas.AI Admin console</h1>
+  <span class="sub">knowledge base · marketing analytics</span>
+  <span class="spacer"></span>
+  <button class="btn ghost" id="logoutBtn" hidden>Log out</button>
+</header>
+
+<main>
+  <!-- ============ LOGIN ============ -->
+  <section id="loginSec">
+    <h2>Sign in</h2>
+    <div id="loginBody">
+      <div class="row">
+        <input type="password" id="pw" placeholder="Admin password" autocomplete="current-password" />
+        <button class="btn" id="loginBtn">Sign in</button>
+      </div>
+      <div class="err" id="loginErr"></div>
+      <div class="note">Admin access is configured with <span class="mono">RAG_ADMIN_PASSWORD</span> in <span class="mono">server/.env</span>. This console is for Sanas staff only.</div>
+    </div>
+  </section>
+
+  <!-- ============ KNOWLEDGE BASE ============ -->
+  <section id="kbSec" hidden>
+    <h2>Knowledge base — unstructured documents (RAG)</h2>
+    <div class="drop" id="drop">Drop a PDF / DOCX / TXT / MD here, or click to choose.<br/>
+      <span class="note">Sanas.AI answers grounded in these for every visitor.</span></div>
+    <input type="file" id="file" accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm" hidden />
+    <div class="err" id="kbErr"></div>
+    <div id="docs" class="note">Loading…</div>
+    <div class="row" style="margin-top:12px"><button class="btn ghost" id="clearBtn">Clear all documents</button></div>
+  </section>
+
+  <!-- ============ MARKETING ============ -->
+  <section id="mktSec" hidden>
+    <h2>Marketing — profiles, events &amp; chat threads</h2>
+    <div class="cards" id="cards"></div>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn ghost" id="refreshBtn">Refresh</button>
+      <button class="btn ghost" id="exportBtn">Export events.jsonl</button>
+      <span class="note" id="whNote"></span>
+    </div>
+    <div id="list">
+      <table id="profTable">
+        <thead><tr><th>Visitor</th><th>Identity</th><th>First touch</th><th>Last seen</th>
+                   <th>Events</th><th>Chat turns</th><th>Sessions</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="note" id="emptyNote" hidden>No visitor activity captured yet — open the app and interact with Sanas.AI.</div>
+    </div>
+    <div id="detail">
+      <button class="back" id="backBtn">← All profiles</button>
+      <div id="detailBody"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const API = (window.SAN_API_BASE || '');
+  const TOKEN_KEY = 'sanas_admin_console';
+  let token = null;
+  try { token = sessionStorage.getItem(TOKEN_KEY) || null; } catch {}
+
+  const hdrs = () => token ? { 'X-Admin-Token': token } : {};
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+  function setAuthed(on) {
+    $('#kbSec').hidden = !on; $('#mktSec').hidden = !on;
+    $('#logoutBtn').hidden = !on; $('#loginSec').hidden = on;
+    if (on) { loadDocs(); loadMarketing(); }
+  }
+  function signOut() {
+    fetch(API + '/api/admin/logout', { method: 'POST', headers: hdrs() }).catch(() => {});
+    token = null; try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
+    setAuthed(false);
+  }
+  const authGuard = r => { if (r.status === 401 || r.status === 503) { signOut(); throw new Error('auth'); } return r; };
+
+  // ---- login ----
+  async function login() {
+    $('#loginErr').textContent = '';
+    const btn = $('#loginBtn'); btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const r = await fetch(API + '/api/admin/login', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('#pw').value }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok && d.token) {
+        token = d.token; try { sessionStorage.setItem(TOKEN_KEY, token); } catch {}
+        setAuthed(true);
+      } else {
+        $('#loginErr').textContent = d.detail || (d.configured === false
+          ? 'Admin login is not configured on this server (set RAG_ADMIN_PASSWORD).' : 'Incorrect password.');
+      }
+    } catch { $('#loginErr').textContent = 'Could not reach the backend.'; }
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+  $('#loginBtn').addEventListener('click', login);
+  $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  $('#logoutBtn').addEventListener('click', signOut);
+
+  // ---- knowledge base ----
+  async function loadDocs() {
+    try {
+      const d = await fetch(API + '/api/rag/docs', { headers: hdrs() }).then(authGuard).then(r => r.json());
+      const wrap = $('#docs'); wrap.textContent = '';
+      if (!d.docs || !d.docs.length) { wrap.textContent = 'No documents indexed yet.'; return; }
+      wrap.append(Object.assign(document.createElement('div'), { className: 'note',
+        textContent: `${d.docs.length} document(s) · ${d.chunks} sections` }));
+      d.docs.forEach(doc => {
+        const row = document.createElement('div'); row.className = 'doc';
+        row.innerHTML = `<span>${esc(doc.name)}</span><span class="pill">${doc.chunks || 0} sections</span>`;
+        wrap.appendChild(row);
+      });
+    } catch (e) { if (String(e.message) !== 'auth') $('#docs').textContent = 'Could not load documents.'; }
+  }
+  async function upload(file) {
+    if (!file) return;
+    $('#kbErr').textContent = ''; $('#drop').textContent = `Indexing ${file.name}…`;
+    try {
+      const form = new FormData(); form.append('file', file);
+      const r = await fetch(API + '/api/rag/upload', { method: 'POST', headers: hdrs(), body: form }).then(authGuard);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) $('#kbErr').textContent = d.detail || ('Upload failed: ' + r.status);
+      loadDocs();
+    } catch (e) { if (String(e.message) !== 'auth') $('#kbErr').textContent = 'Upload failed — is the backend running?'; }
+    $('#drop').innerHTML = 'Drop a PDF / DOCX / TXT / MD here, or click to choose.<br/><span class="note">Sanas.AI answers grounded in these for every visitor.</span>';
+  }
+  $('#drop').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', e => { upload(e.target.files[0]); e.target.value = ''; });
+  ['dragover', 'dragleave', 'drop'].forEach(t => $('#drop').addEventListener(t, e => {
+    e.preventDefault(); $('#drop').classList.toggle('over', t === 'dragover');
+    if (t === 'drop') upload(e.dataTransfer.files[0]);
+  }));
+  $('#clearBtn').addEventListener('click', async () => {
+    if (!confirm('Remove ALL uploaded documents from the knowledge base?')) return;
+    try { await fetch(API + '/api/rag/clear', { method: 'POST', headers: hdrs() }).then(authGuard); } catch {}
+    loadDocs();
+  });
+
+  // ---- marketing ----
+  async function loadMarketing() {
+    try {
+      const s = await fetch(API + '/api/analytics/summary', { headers: hdrs() }).then(authGuard).then(r => r.json());
+      $('#cards').innerHTML = [
+        ['Visitors (profiles)', s.profiles], ['Identified leads', s.identified],
+        ['Events captured', s.events], ['Chat turns', s.chat_turns],
+      ].map(([l, n]) => `<div class="card"><div class="num">${n ?? 0}</div><div class="lbl">${l}</div></div>`).join('');
+      $('#whNote').textContent = s.webhook_forwarding
+        ? 'Realtime forwarding: ON (SAN_EVENTS_WEBHOOK)' : 'Realtime forwarding: off — set SAN_EVENTS_WEBHOOK to stream events to your CDP.';
+      const d = await fetch(API + '/api/analytics/profiles', { headers: hdrs() }).then(authGuard).then(r => r.json());
+      const tb = $('#profTable tbody'); tb.innerHTML = '';
+      (d.profiles || []).forEach(p => {
+        const tr = document.createElement('tr'); tr.className = 'click';
+        const ident = p.email ? `<span class="pill id">${esc(p.email)}</span>${p.company ? ' ' + esc(p.company) : ''}` : '<span class="pill">anonymous</span>';
+        const ft = p.first_touch || {};
+        const touch = ft.utm_source ? `${esc(ft.utm_source)}${ft.utm_campaign ? ' / ' + esc(ft.utm_campaign) : ''}` : (ft.referrer ? esc(ft.referrer) : 'direct');
+        tr.innerHTML = `<td class="mono">${esc(p.profile_id.slice(0, 8))}…</td><td>${ident}</td>
+          <td>${touch}</td><td>${esc((p.last_seen || '').replace('T', ' ').replace('Z', ''))}</td>
+          <td>${p.events}</td><td>${p.chat_turns}</td><td>${p.sessions}</td>`;
+        tr.addEventListener('click', () => showProfile(p.profile_id));
+        tb.appendChild(tr);
+      });
+      $('#emptyNote').hidden = !!(d.profiles || []).length;
+    } catch (e) { if (String(e.message) !== 'auth') $('#emptyNote').hidden = false; }
+  }
+  async function showProfile(pid) {
+    try {
+      const d = await fetch(API + '/api/analytics/profile/' + encodeURIComponent(pid), { headers: hdrs() })
+        .then(authGuard).then(r => r.json());
+      $('#list').style.display = 'none'; $('#detail').style.display = 'block';
+      const t = (d.profile || {}).traits || {};
+      const parts = [`<h3 style="margin:12px 0 4px">${esc(t.name || 'Anonymous visitor')} <span class="pill mono">${esc(pid)}</span></h3>`];
+      if (t.email) parts.push(`<div class="note">${esc(t.email)}${t.company ? ' · ' + esc(t.company) : ''}${t.job_title ? ' · ' + esc(t.job_title) : ''} · via ${esc((d.profile || {}).identified_via || '')}</div>`);
+      const ft = (d.profile || {}).first_touch || {};
+      if (Object.keys(ft).length) parts.push(`<div class="note">First touch: ${esc(JSON.stringify(ft))}</div>`);
+      (d.threads || []).forEach(th => {
+        parts.push(`<div class="thread"><div class="note">Chat thread · session ${esc(th.session_id.slice(0, 8))} · ${th.turns.length} turns</div>` +
+          th.turns.map(u => `<div class="turn ${u.role === 'user' ? 'user' : ''}"><span class="who">${u.role === 'user' ? 'Visitor' : 'Sanas.AI'}</span> ${esc(u.text)}</div>`).join('') + '</div>');
+      });
+      parts.push(`<div class="note" style="margin-top:14px">Event stream (${(d.events || []).length}):</div>`);
+      (d.events || []).slice().reverse().forEach(ev => {
+        const { profile_id, session_id, server_ts, ua, ...rest } = ev;
+        parts.push(`<div class="evt">${esc(ev.ts || '')} · ${esc(JSON.stringify(rest))}</div>`);
+      });
+      $('#detailBody').innerHTML = parts.join('');
+    } catch {}
+  }
+  $('#backBtn').addEventListener('click', () => { $('#detail').style.display = 'none'; $('#list').style.display = 'block'; });
+  $('#refreshBtn').addEventListener('click', loadMarketing);
+  $('#exportBtn').addEventListener('click', async () => {
+    try {
+      const r = await fetch(API + '/api/analytics/export', { headers: hdrs() }).then(authGuard);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'events.jsonl'; a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {}
+  });
+
+  // ---- boot: validate any stored token by hitting an admin endpoint ----
+  (async () => {
+    if (!token) { setAuthed(false); return; }
+    try { await fetch(API + '/api/analytics/summary', { headers: hdrs() }).then(authGuard); setAuthed(true); }
+    catch { /* signOut already ran */ }
+  })();
+})();
+</script>
+</body>
+</html>

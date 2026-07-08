@@ -72,5 +72,44 @@ def rate_limit(request: Request) -> None:
                             headers={"Retry-After": str(retry)})
 
 
+# --- Separate, higher-cap bucket for the analytics ingest endpoint -------------
+# /api/events is high-frequency (background flushes) but cheap; keep it OUT of the
+# shared expensive-endpoint budget so it can't 429 chat for users behind one NAT.
+_EVT_RAW = os.getenv("SAN_EVENTS_RATE_LIMIT", "240").strip().lower()
+_EVT_ENABLED = _EVT_RAW not in ("0", "off", "false", "no", "")
+_EVT_LIMIT = int(_EVT_RAW) if _EVT_RAW.isdigit() else 240
+_evt_buckets: dict[str, list] = {}
+_evt_last_prune = [0.0]
+
+
+def _allow_evt(ip: str):
+    now = time.monotonic()
+    with _lock:
+        if now - _evt_last_prune[0] > _WINDOW:
+            for k, (start, _) in list(_evt_buckets.items()):
+                if now - start > _WINDOW:
+                    _evt_buckets.pop(k, None)
+            _evt_last_prune[0] = now
+        ent = _evt_buckets.get(ip)
+        if ent is None or now - ent[0] >= _WINDOW:
+            _evt_buckets[ip] = [now, 1]
+            return True, 0
+        ent[1] += 1
+        if ent[1] > _EVT_LIMIT:
+            return False, max(1, int(_WINDOW - (now - ent[0])))
+        return True, 0
+
+
+def events_rate_limit(request: Request) -> None:
+    """FastAPI dependency for /api/events — its own per-IP window (SAN_EVENTS_RATE_LIMIT)."""
+    if not _EVT_ENABLED:
+        return
+    ok, retry = _allow_evt(client_ip(request))
+    if not ok:
+        raise HTTPException(status_code=429, detail="Too many requests — slow down.",
+                            headers={"Retry-After": str(retry)})
+
+
 def info() -> dict:
-    return {"enabled": _ENABLED, "limit": _LIMIT, "window_s": _WINDOW}
+    return {"enabled": _ENABLED, "limit": _LIMIT, "window_s": _WINDOW,
+            "events_limit": _EVT_LIMIT if _EVT_ENABLED else 0}

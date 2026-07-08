@@ -95,6 +95,7 @@ ASCII fallback:
 | **Site retrieval** | `server/webindex.py` + `web_index.json` | Lexical (TF) top-k over the crawled sanas.ai/help.sanas.ai index; intent-biased `prefer=`. |
 | **Document RAG** | `server/doc_index.py` + `rag_store.json` | Parses uploaded PDF/DOCX/TXT/MD, chunks (~2 kB), lexically indexes (same scoring as the site), **persists to disk**; `_retrieve()` in `main.py` merges doc hits ahead of site pages for grounding. |
 | **ASR** | `server/asr.py` | faster-whisper transcription + a from-scratch word-level WER. Optional dependency. |
+| **Analytics** | `server/analytics.py` + `events.jsonl` / `profiles.json` | First-party marketing capture: append-only event log + profile registry (first-touch UTM attribution, identify-on-form), chat-thread reconstruction, optional `SAN_EVENTS_WEBHOOK` realtime forwarding. Admin console: `admin.html`. |
 | **Mailer** | `server/mailer.py` | SMTP sender for the "More Information / book a demo" flow. Creds in `.env`; degrades to a logged no-op when unset. |
 | **Golden evals** | `evals/` | Loads the real `app.js` engine under jsdom and asserts guardrails, persona routing, recommendations, voice rules; static invariants on the LLM system prompt. CI gate. |
 
@@ -113,6 +114,8 @@ ASCII fallback:
 | `GET` | `/api/admin/status` | Whether an admin password is configured. |
 | `POST` | `/api/admin/login` | Admin login (`RAG_ADMIN_PASSWORD`) → in-memory bearer token (cleared on restart). |
 | `POST` | `/api/admin/logout` | Invalidate the presented admin token. |
+| `POST` | `/api/events` | **Marketing capture.** Batched first-party events from the front-end (page views + UTM, feature usage, full chat turns), tied to the visitor's durable profile id. |
+| `GET` | `/api/analytics/summary` · `/profiles` · `/profile/{id}` · `/export` | **Marketing reporting (admin).** Totals, profile list, per-profile events + reconstructed chat threads, raw `events.jsonl` export. Requires `X-Admin-Token`. |
 | `POST` | `/api/rag/upload` | **Document RAG (admin).** Upload PDF/DOCX/TXT/MD → parse + chunk + index (persisted) → `{doc_id, name, chunks, total_docs}`. Requires `X-Admin-Token`. |
 | `GET` | `/api/rag/docs` | List indexed documents (admin; `X-Admin-Token`). |
 | `POST` | `/api/rag/clear` | Wipe the document store (admin; `X-Admin-Token`). |
@@ -215,10 +218,14 @@ before + after (+ optional clean reference) ──► POST /api/asr
 - **Credentials live only in `server/.env`** (gitignored): `SANAS_API_KEY`/account creds,
   `SANAS_ENDPOINT`, `ANTHROPIC_API_KEY`. Loaded at startup; a non-empty value in the
   environment wins, but `.env` overrides a *blank* env var (so a stray empty key can't mask it).
-- **Static allow-list:** the server serves only `index.html`, `app.js`, `styles.css` —
-  never backend source, `.env`, or `vendor/`.
+- **Static allow-list:** the server serves only `index.html`, `app.js`, `styles.css`,
+  `config.js`, and the admin console `admin.html` — never backend source, `.env`, or `vendor/`.
 - **Audio:** uploaded/clip audio is processed in-memory; the Sanas engine is Zero-Knowledge
   (no external storage during real-time processing).
+- **First-party analytics store:** marketing events + identified visitor profiles (incl. lead
+  email/name and chat transcripts) persist under `SAN_DATA_DIR` (`events.jsonl` / `profiles.json`).
+  Reads are admin-gated (`/api/analytics/*`); ingestion (`POST /api/events`) is public but
+  rate-limited and byte-capped. Treat that directory as PII — see DEPLOY_AWS.md for retention.
 - **Anthropic auth hardening:** a blank `ANTHROPIC_AUTH_TOKEN` is dropped before constructing
   the client (otherwise the SDK emits an illegal empty `Authorization: Bearer` header).
 
@@ -237,6 +244,10 @@ before + after (+ optional clean reference) ──► POST /api/asr
 | `SAN_LLM_MODEL` | Chat model (`claude-sonnet-4-6` default; `claude-opus-4-8` for max quality). |
 | `SAN_CACHE` / `SAN_CACHE_TTL` / `SAN_REDIS_URL` | Response cache (Claude reply reuse): on by default, in-process; set `SAN_REDIS_URL` to share it via ElastiCache/Redis. |
 | `SAN_RATE_LIMIT` / `SAN_RATE_WINDOW` | Per-IP rate limit on the expensive endpoints (default 60/60s; `0`/`off` disables). |
+| `SAN_EVENTS_RATE_LIMIT` | Separate per-IP limit for `POST /api/events` (default 240/window) so analytics flushes never starve chat. |
+| `SAN_EVENTS_WEBHOOK` | Optional: POST every accepted analytics batch to a CDP / HTTP collector (Segment, RudderStack, …) for realtime marketing fan-out. Unset = store-only. |
+| `SAN_MAX_PROFILES` | Cap on stored visitor profiles (default 50000; least-recently-seen evicted) to bound the registry against bot churn. |
+| `RAG_ADMIN_PASSWORD` | Enables the `/admin.html` console (knowledge-base upload + marketing analytics). Unset = admin locked. |
 
 > **Cost & scale:** prompt caching (two breakpoints), the response cache, and the per-IP
 > rate limit keep the Claude bill down; the in-process defaults swap to ElastiCache/Redis for
@@ -357,9 +368,9 @@ sanas.ai ──index_site.py──▶ web_index.json ──webindex.search(query
 
 ### Document RAG (`server/doc_index.py`)
 **Upload is admin-gated** (`require_admin` dependency on `/api/rag/{upload,docs,clear}`):
-`RAG_ADMIN_PASSWORD` in `.env` enables an in-app login (⌗ panel) that mints an in-memory
-bearer token sent as `X-Admin-Token`; the composer's document button only appears once
-logged in. Retrieval over already-indexed docs is **not** gated — every visitor's chat turn
+`RAG_ADMIN_PASSWORD` in `.env` enables the login on the dedicated admin console
+(`/admin.html`) that mints an in-memory bearer token sent as `X-Admin-Token`; the chat app
+itself has no admin login or upload path. Retrieval over already-indexed docs is **not** gated — every visitor's chat turn
 can ground in them. An admin uploads a file (`POST /api/rag/upload`); `doc_index.extract_text()` parses it
 (pypdf / python-docx / plain decode + HTML strip), `_chunk()` splits it into ~2 kB blocks
 on paragraph/sentence boundaries, and each chunk is lexically indexed with the **same

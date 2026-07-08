@@ -598,19 +598,52 @@ function animateWaveform(canvas, processed, dur) {
 /* ============================================================
    APP STATE + INSTRUMENTATION (§7.8 / F11)
    ============================================================ */
+/* Durable anonymous visitor id — the marketing profile every event/thread ties
+   to. Survives across sessions in localStorage; becomes an identified lead when
+   the visitor submits the demo/partner form (backend merges the traits). */
+function profileId() {
+  try {
+    let id = localStorage.getItem('sanas_profile_id');
+    if (!id) { id = uuid(); localStorage.setItem('sanas_profile_id', id); }
+    return id;
+  } catch { return uuid(); }   // storage blocked -> per-page profile
+}
+
 const state = {
   sessionId: uuid(),
+  profileId: profileId(),
   persona: null,        // null until detected/selected
   personaExplicit: false,
   industry: null,       // vertical selected in the industry dropdown (null = unset)
-  adminConfigured: false,  // whether the server has an admin password set
-  adminToken: (() => { try { return sessionStorage.getItem('sani_admin') || null; } catch { return null; } })(),
   skeptic: 0,
   turn: 0,
   history: [],          // session-scoped memory (F9)
   events: [],           // self-observability event stream (F11)
   ctaTurnsAgo: 99,      // for "no more than 1 CTA per 3 turns" guardrail
 };
+
+/* Every emit() is queued and batched to POST /api/events (first-party marketing
+   capture, tied to the profile id). Flushes on a timer, when the tab hides, and
+   on pagehide via sendBeacon so end-of-visit events aren't lost. */
+const _evtQueue = [];
+const _EVT_QUEUE_MAX = 1000;   // bound memory if the backend is down for a while
+function flushEvents(useBeacon = false) {
+  if (!_evtQueue.length) return;
+  const sending = _evtQueue.splice(0, 200);
+  // On transient failure, put the batch back at the FRONT so a restart/deploy/blip
+  // doesn't punch silent holes in the captured chat threads (beacon can't report).
+  const requeue = () => { _evtQueue.unshift(...sending); if (_evtQueue.length > _EVT_QUEUE_MAX) _evtQueue.length = _EVT_QUEUE_MAX; };
+  const batch = { profile_id: state.profileId, session_id: state.sessionId, events: sending };
+  const url = SAN_API + '/api/events';
+  const body = JSON.stringify(batch);
+  try {
+    if (useBeacon && navigator.sendBeacon &&
+        navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))) return;
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: useBeacon })
+      .then(r => { if (!r.ok) requeue(); })
+      .catch(requeue);
+  } catch { requeue(); }
+}
 
 function emit(evt) {
   const e = Object.assign({
@@ -619,8 +652,19 @@ function emit(evt) {
     ts: new Date().toISOString(),
   }, evt);
   state.events.push(e);
+  _evtQueue.push(e);
+  if (_evtQueue.length >= 40) flushEvents();   // don't let a chatty session queue unbounded
   renderDebug();
   return e;
+}
+
+/* Chat-thread capture: one chat_turn event per displayed message (user +
+   assistant, both LLM-streamed and rule-engine replies) — so each thread can be
+   reconstructed per profile on the admin console. */
+function emitChatTurn(role, text, mode) {
+  if (typeof text !== 'string' || !text.trim()) return;
+  emit({ event: 'chat_turn', role, text: text.slice(0, 4000), mode: mode || 'rule',
+         persona: state.persona, industry: state.industry });
 }
 
 /* ============================================================
@@ -1601,11 +1645,22 @@ const refuse = (reason) => ({ text: REFUSAL_LINE, sources: [], nodes: [],
 const RX_NEFARIOUS = /\b(impersonat|deepfake|voice ?clone|clone[^.]{0,20}voice|fake[^.]{0,20}voice|catfish|phish|scam|defraud|fraud|pretend to be|without[^.]{0,20}consent|bypass consent|evade detection|wiretap)\b/;
 const RX_LEGAL = /\b(legal|lawsuit|sue|litigation|liabilit|indemnif|terms of service|warrant(y|ies)|jurisdiction|nda)\b/;
 const RX_COMPETITIVE = /\b(deepgram|elevenlabs|krisp|otter|assembly ?ai|cartesia|murf|competitors?|the competition|other (vendors?|solutions?|tools?|products?|providers?)|alternatives? to)\b/;
+// Personal distress / mental-health crisis — a safety response, NOT the business
+// refusal line. Targeted to first-person crisis language, not the healthcare vertical.
+const RX_CRISIS = /\b(suicid\w*|kill (myself|himself|herself)|want(ing)? to die|wanna die|end (my|his|her) life|self.?harm\w*|hurt(ing)? myself|harm(ing)? myself|i'?m in crisis|mental breakdown)\b/;
+// Requests for medical / mental-health ADVICE (not a healthcare-vertical sales question).
+const RX_MED_ADVICE = /\b(medical advice|mental.?health advice|diagnos(e|es|ed|ing|is)|prescrib\w*|am i (depressed|anxious|bipolar)|treat my (depression|anxiety|illness|condition)|therapy for me|counsel me)\b/;
 
 function respond(text) {
   const t = text.toLowerCase().trim();
   const skeptic = skepticScore(text);
   state.skeptic = skeptic;
+
+  // ---- Safety: personal distress / mental-health crisis (highest priority) ----
+  if (RX_CRISIS.test(t)) {
+    return { text: "I'm really sorry you're going through this — but I'm just a product assistant, not able to help with a mental-health crisis. Please reach out right now to a qualified mental-health professional, or contact your local emergency services or a crisis line. You deserve support from someone trained to help.",
+      sources: [], suggestions: [], refusal: 'safety' };
+  }
 
   // ---- Live mic (speak to the models in real time) ----
   if (/\b(speak|talk)\b.*\b(live|real-?time|mic|microphone)\b|\blive\b.*\b(mic|audio|models?|stream)\b|real-?time (audio|mic|voice)|\bagentic\b/.test(t)) {
@@ -1627,13 +1682,18 @@ function respond(text) {
       sources: [], suggestions: ['Run an ROI snapshot', 'Talk to a human'], refusal: 'pricing' };
   }
   if (/\b(fedramp|hipaa|pci)\b/.test(t)) {
-    return { text: "I won't speculate on certifications that aren't in my knowledge base. At MVP, Sanas documents ISO 27001, SOC 2 Type II, and GDPR. For FedRAMP, HIPAA, or PCI I'd rather loop in our security team than guess — they can speak to current status and roadmap.",
-      sources: ['kb-iso'], suggestions: ['Talk to security', 'Zero-Knowledge deployment'], refusal: 'uncertified_compliance' };
+    return { text: "I won't claim certifications we don't hold. Sanas documents ISO 27001, SOC 2 Type II, and GDPR — but is not HIPAA, PCI, or FedRAMP certified at this stage, so I can't say we're compliant. Our security team can speak to current status and roadmap, and Sanas already runs Zero-Knowledge — no audio stored or transmitted externally during real-time processing.",
+      sources: ['kb-iso', 'kb-zk'], suggestions: ['Talk to security', 'Zero-Knowledge deployment'], refusal: 'uncertified_compliance' };
   }
   // Legal / competitive / nefarious → the one exact refusal line (checked early).
   if (RX_NEFARIOUS.test(t)) return refuse('nefarious');
   if (RX_LEGAL.test(t)) return refuse('legal');
   if (RX_COMPETITIVE.test(t)) return refuse('competitive');
+  // Medical / mental-health ADVICE (distinct from a healthcare-vertical sales question) — decline safely.
+  if (RX_MED_ADVICE.test(t)) {
+    return { text: "I'm a Sanas product specialist, not a medical or mental-health professional, so I can't give medical or mental-health advice — please speak with a qualified professional for that. I'm glad to help with how Sanas's speech AI works, though.",
+      sources: [], suggestions: ['What does Sanas do?', 'Play a before/after', 'Talk to a human'], refusal: 'medical' };
+  }
 
   // ---- Human handoff (F8) ----
   if (/\b(talk to (a )?human|speak to (someone|sales|a person)|book a demo|schedule|sales rep|account exec)\b/.test(t)) {
@@ -1758,6 +1818,7 @@ function addMessage(role, content, extras = {}) {
   const wrap = el('div', { class: 'bubble-wrap' });
   if (typeof content === 'string') {
     wrap.appendChild(el('div', { class: 'bubble', html: renderMarkdown(content) }));
+    emitChatTurn(role === 'san' ? 'assistant' : 'user', content, extras.mode);
   }
   if (extras.sources && extras.sources.length) {
     const chips = srcChips(extras.sources); if (chips) wrap.appendChild(chips);
@@ -1789,6 +1850,7 @@ function addStreamingMessage() {
   return {
     append(t) { raw += t; bubble.textContent = raw; log().scrollTop = log().scrollHeight; },
     finalize(fullText, extras = {}) {
+      emitChatTurn('assistant', fullText, extras.mode || 'llm');
       bubble.innerHTML = renderMarkdown(fullText);
       if (extras.sources && extras.sources.length) {
         const c = srcChips(extras.sources); if (c) wrap.appendChild(c);
@@ -1806,13 +1868,14 @@ function addStreamingMessage() {
    user prefers reduced motion */
 async function typeMessage(text, extras = {}) {
   const sm = addStreamingMessage();
+  const ex = Object.assign({ mode: 'opener' }, extras);   // openers aren't LLM turns
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) { sm.finalize(text, extras); return; }
+  if (reduce) { sm.finalize(text, ex); return; }
   for (const tok of text.split(/(\s+)/)) {
     sm.append(tok);
     await new Promise(r => setTimeout(r, tok.trim() ? 26 : 10));
   }
-  sm.finalize(text, extras);
+  sm.finalize(text, ex);
 }
 
 function showTyping() {
@@ -1978,140 +2041,10 @@ async function handleUpload(file) {
 }
 
 /* ---------- document RAG: upload an unstructured file for grounding ---------- */
-function docNode(info) {
-  return el('div', { class: 'doc-card rich' },
-    el('div', { class: 'doc-ico', html: DOC_SVG }),
-    el('div', { class: 'doc-meta' },
-      el('div', { class: 'doc-name' }, info.name),
-      el('div', { class: 'doc-sub' }, `${(info.chunks || 0).toLocaleString()} sections · ${(info.chars || 0).toLocaleString()} chars · indexed for retrieval`)));
-}
-async function handleDocUpload(file) {
-  if (!file) return;
-  state.turn++;
-  addMessage('user', 'Added document: ' + file.name);
-  showTyping(); busy = true;
-  emit({ event: 'doc_upload', doc_name: file.name });
-  try {
-    const form = new FormData(); form.append('file', file);
-    const resp = await fetch(SAN_API + '/api/rag/upload', { method: 'POST', headers: adminHeaders(), body: form });
-    const data = await resp.json().catch(() => ({}));
-    hideTyping();
-    if (resp.status === 401 || resp.status === 403 || resp.status === 503) {
-      adminClearLocal(); renderAdmin();
-      addMessage('san', 'Document upload is admin-only. Open the ⌗ panel (top-right) and log in to manage the knowledge base.');
-      emit({ event: 'doc_upload_denied', status: resp.status });
-      return;
-    }
-    if (!resp.ok) {
-      const why = data.detail || ('upload failed: ' + resp.status);
-      addMessage('san', `I couldn't index that document — ${why} I can read PDF, DOCX, TXT, and Markdown (text-searchable, not scanned images).`);
-      emit({ event: 'doc_upload_error', error: why });
-      return;
-    }
-    addMessage('san',
-      `Indexed **${data.name}** — ${(data.chunks || 0).toLocaleString()} sections, retrievable now. Ask me anything about it and I'll answer grounded in it, citing the document. Your file is stored on the Sanas.AI server only, never sent to the browser of anyone else.`,
-      { nodes: [docNode(data)] });
-    setSuggestions(['Summarize this document', 'What are the key points?', 'How does this relate to Sanas?']);
-    emit({ event: 'doc_indexed', doc_name: data.name, chunks: data.chunks, total_docs: data.total_docs });
-  } catch (err) {
-    hideTyping();
-    addMessage('san', "I couldn't reach the document indexer. Start the Sanas.AI server (`docker compose up`) and try again — parsing and storage happen there, not in the browser.");
-    emit({ event: 'doc_upload_error', error: String(err) });
-  } finally {
-    busy = false;
-  }
-}
-
-/* ---------- Admin: knowledge-base (RAG) login + management (⌗ panel) ---------- */
-function adminHeaders() { return state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}; }
-function adminClearLocal() {
-  state.adminToken = null;
-  try { sessionStorage.removeItem('sani_admin'); } catch {}
-  updateDocBtn();
-}
-function updateDocBtn() {
-  const b = $('#sanDocUpload'); if (!b) return;
-  b.hidden = !(state.adminConfigured && state.adminToken);   // only admins see the composer doc button
-}
-async function adminFetchStatus() {
-  try { const d = await fetch(SAN_API + '/api/admin/status').then(r => r.json()); state.adminConfigured = !!d.configured; }
-  catch { state.adminConfigured = false; }
-  updateDocBtn(); renderAdmin();
-}
-async function adminLogin(password) {
-  try {
-    const r = await fetch(SAN_API + '/api/admin/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok && d.ok && d.token) {
-      state.adminToken = d.token;
-      try { sessionStorage.setItem('sani_admin', d.token); } catch {}
-      updateDocBtn(); renderAdmin(); emit({ event: 'admin_login' });
-      return true;
-    }
-    return false;
-  } catch { return false; }
-}
-async function adminLogout() {
-  try { await fetch(SAN_API + '/api/admin/logout', { method: 'POST', headers: adminHeaders() }); } catch {}
-  adminClearLocal(); renderAdmin(); emit({ event: 'admin_logout' });
-}
-async function adminClear() {
-  try {
-    const r = await fetch(SAN_API + '/api/rag/clear', { method: 'POST', headers: adminHeaders() });
-    if (r.status === 401 || r.status === 503) { adminClearLocal(); renderAdmin(); return; }
-    emit({ event: 'rag_cleared' });
-  } catch {}
-  refreshDocs();
-}
-async function refreshDocs() {
-  const wrap = $('#adminPanel .admin-docs'); if (!wrap) return;
-  try {
-    const r = await fetch(SAN_API + '/api/rag/docs', { headers: adminHeaders() });
-    if (r.status === 401 || r.status === 503) { adminClearLocal(); renderAdmin(); return; }
-    const d = await r.json();
-    wrap.replaceChildren();
-    if (!d.docs || !d.docs.length) { wrap.appendChild(el('div', { class: 'admin-note' }, 'No documents indexed yet.')); return; }
-    wrap.appendChild(el('div', { class: 'admin-note' }, `${d.docs.length} document(s) · ${d.chunks} sections`));
-    d.docs.forEach(doc => wrap.appendChild(el('div', { class: 'admin-doc' }, `${doc.name} — ${(doc.chunks || 0)} sections`)));
-  } catch { wrap.textContent = 'Could not load documents.'; }
-}
-function renderAdmin() {
-  const panel = $('#adminPanel'); if (!panel) return;
-  panel.replaceChildren();
-  panel.appendChild(el('div', { class: 'admin-head' }, 'Knowledge base (RAG)'));
-  if (!state.adminConfigured) {
-    panel.appendChild(el('div', { class: 'admin-note' }, 'Document upload is admin-only and not configured on this server. Set RAG_ADMIN_PASSWORD in server/.env to enable it.'));
-    return;
-  }
-  if (!state.adminToken) {
-    const pw = el('input', { type: 'password', class: 'admin-pw', placeholder: 'Admin password', autocomplete: 'current-password' });
-    const err = el('div', { class: 'admin-err' });
-    const btn = el('button', { class: 'admin-btn' }, 'Unlock');
-    const go = async () => {
-      err.textContent = ''; btn.disabled = true; btn.textContent = 'Unlocking…';
-      const ok = await adminLogin(pw.value);
-      btn.disabled = false; btn.textContent = 'Unlock';
-      if (!ok) err.textContent = 'Incorrect password.';
-    };
-    btn.addEventListener('click', go);
-    pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    panel.append(el('div', { class: 'admin-note' }, 'Log in to upload documents Sanas.AI can answer from.'), pw, btn, err);
-    return;
-  }
-  // logged in
-  const up = el('button', { class: 'admin-btn' }, 'Upload a document');
-  up.addEventListener('click', () => $('#sanDocFile').click());
-  const docs = el('div', { class: 'admin-docs' }, 'Loading…');
-  const clear = el('button', { class: 'admin-btn ghost' }, 'Clear all');
-  clear.addEventListener('click', () => adminClear());
-  const logout = el('button', { class: 'admin-btn ghost' }, 'Log out');
-  logout.addEventListener('click', () => adminLogout());
-  panel.append(
-    el('div', { class: 'admin-note' }, 'Logged in. Upload PDF / DOCX / TXT / MD — Sanas.AI answers grounded in them for everyone.'),
-    up, docs, el('div', { class: 'admin-actions' }, clear, logout));
-  refreshDocs();
-}
+/* Knowledge-base (RAG) management moved OUT of the chat app to the dedicated
+   admin console at /admin.html — login, document upload, doc list, clear, and
+   the marketing analytics views all live there. The chat surface has no admin
+   login or upload path anymore. */
 
 /* ---------- "More Information" — book-a-demo intake (mirrors sanas.ai/book-demo) ---------- */
 function bookDemoNode() {
@@ -2137,6 +2070,7 @@ function bookDemoNode() {
       first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email,
       company: f.company.value.trim(), job_title: f.job_title.value.trim(),
       phone: f.phone.value.trim(), company_size: sizeSel.value, message: msg.value.trim(),
+      profile_id: state.profileId,   // ties this lead to the visitor's event history
     };
     try {
       const r = await fetch(SAN_API + '/api/demo/book', {
@@ -2173,7 +2107,7 @@ function bookDemoNode() {
     el('div', { class: 'demo-row' }, field('phone', 'Phone', { type: 'tel' }),
       el('label', { class: 'roi-field' }, el('span', {}, 'Company size'), sizeSel)),
     el('label', { class: 'roi-field' }, el('span', {}, 'What are you looking to solve?'), msg),
-    el('div', { class: 'demo-disc' }, 'We use this only to prepare and schedule your demo.'),
+    el('div', { class: 'demo-disc' }, 'We use this to prepare and schedule your demo and to connect your request with your activity on this site.'),
     go, out);
 }
 function openBookDemo() {
@@ -2210,6 +2144,7 @@ function partnerFormNode() {
       first_name: f.first_name.value.trim(), last_name: f.last_name.value.trim(), email,
       company: f.company.value.trim(), partnership_type: typeSel.value,
       region: f.region.value.trim(), website: f.website.value.trim(), message: msg.value.trim(),
+      profile_id: state.profileId,   // ties this application to the visitor's event history
     };
     try {
       const r = await fetch(SAN_API + '/api/partner/apply', {
@@ -2236,7 +2171,7 @@ function partnerFormNode() {
       el('label', { class: 'roi-field' }, el('span', {}, 'Partnership type'), typeSel)),
     el('div', { class: 'demo-row' }, field('region', 'Region / country'), field('website', 'Website', { type: 'url', placeholder: 'company.com' })),
     el('label', { class: 'roi-field' }, el('span', {}, 'About the opportunity'), msg),
-    el('div', { class: 'demo-disc' }, 'Goes to the Sanas partnerships team — see the programs at sanas.ai/partners.'),
+    el('div', { class: 'demo-disc' }, 'Goes to the Sanas partnerships team and is connected with your activity on this site — see the programs at sanas.ai/partners.'),
     go, out);
 }
 
@@ -2259,10 +2194,13 @@ function customerStoryNode(key) {
 /* ---------- debug / observability drawer (F11) ---------- */
 function renderDebug() {
   const d = $('#debugBody'); if (!d) return;
+  // Events now carry raw chat text (user + assistant) — escape before it hits
+  // this innerHTML sink so a message like `<img onerror=…>` can't execute here.
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   d.innerHTML = '';
   state.events.slice().reverse().forEach(e => {
     const rows = Object.entries(e).filter(([k]) => !['session_id'].includes(k))
-      .map(([k, v]) => `<span class="k">${k}</span>: ${v}`).join('  ·  ');
+      .map(([k, v]) => `<span class="k">${esc(k)}</span>: ${esc(v)}`).join('  ·  ');
     d.appendChild(el('div', { class: 'evt', html: rows }));
   });
 }
@@ -2459,22 +2397,34 @@ document.addEventListener('DOMContentLoaded', () => {
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
 
-  // upload — audio clip (process through a model) and documents (RAG grounding)
+  // upload — audio clip (processed through a model). Document upload for the
+  // knowledge base lives on the admin console (/admin.html), not in the chat.
   $('#sanUpload').addEventListener('click', () => $('#sanFile').click());
   $('#sanFile').addEventListener('change', e => handleUpload(e.target.files[0]));
-  // document upload is triggered from the admin (⌗) panel, not a composer button
-  $('#sanDocFile').addEventListener('change', e => { handleDocUpload(e.target.files[0]); e.target.value = ''; });
 
-  // debug drawer (internal, SSO-gated in production) — also hosts the RAG admin login
+  // admin console lives on the BACKEND origin (Amplify only serves the chat files),
+  // so point the link at SAN_API rather than the current (possibly Amplify) origin.
+  { const a = $('#adminLink'); if (a) a.href = SAN_API + '/admin.html'; }
+
+  // debug drawer (internal, SSO-gated in production) — session trace only
   $('#sanDebugBtn').addEventListener('click', () => {
     const dr = $('#debugDrawer'); dr.hidden = !dr.hidden;
     $('#sanDebugBtn').classList.toggle('active', !dr.hidden);
-    if (!dr.hidden) renderAdmin();   // refresh the admin panel each time it opens
   });
-
-  // admin login state (gates the knowledge-base / document upload)
-  adminFetchStatus();
   $('#debugClose').addEventListener('click', () => { $('#debugDrawer').hidden = true; $('#sanDebugBtn').classList.remove('active'); });
+
+  // ---- marketing capture: first-touch page view + batched event flushing ----
+  const qp = new URLSearchParams(location.search);
+  const pv = { event: 'page_view', landing: location.pathname, referrer: document.referrer || '' };
+  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(k => {
+    const v = qp.get(k); if (v) pv[k] = v.slice(0, 200);
+  });
+  emit(pv);
+  setInterval(() => flushEvents(), 5000);                       // steady-state batching
+  window.addEventListener('pagehide', () => flushEvents(true)); // end of visit → beacon
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushEvents(true);
+  });
 
   // rolling-word hero animation
   const words = ['Magic', 'Clarity', 'Opportunity', 'Progress', 'Sanas'];

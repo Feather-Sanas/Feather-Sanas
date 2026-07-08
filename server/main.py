@@ -51,7 +51,8 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-import asr  # noqa: E402  (after dotenv load)
+import analytics  # noqa: E402  (after dotenv load; reads SAN_DATA_DIR at import)
+import asr  # noqa: E402
 import auth  # noqa: E402
 import doc_index  # noqa: E402
 import llm  # noqa: E402
@@ -59,7 +60,7 @@ import mailer  # noqa: E402
 import ratelimit  # noqa: E402  (per-IP rate limit; reads env at import)
 import response_cache  # noqa: E402  (Claude reply cache; reads env at import)
 import webindex  # noqa: E402
-from ratelimit import rate_limit  # noqa: E402
+from ratelimit import rate_limit, events_rate_limit  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
 from twilio_routes import router as twilio_router  # noqa: E402
 
@@ -105,6 +106,7 @@ def health() -> JSONResponse:
     h["rag_chunks"] = doc_index.chunk_count()
     h["response_cache"] = response_cache.info()
     h["rate_limit"] = ratelimit.info()
+    # analytics totals/paths are admin-only (GET /api/analytics/summary) — not leaked here
     return JSONResponse(h)
 
 
@@ -581,6 +583,60 @@ def rag_clear(_: None = Depends(require_admin)) -> JSONResponse:
     return JSONResponse({"ok": True, "removed": doc_index.clear()})
 
 
+# ---- Marketing analytics: event ingestion (public) + reporting (admin) --------
+_EVENTS_BODY_CAP = 256 * 1024   # public endpoint — bound the write, not just the rate
+
+@app.post("/api/events")
+async def ingest_events(request: Request, _rl: None = Depends(events_rate_limit)) -> JSONResponse:
+    """Batched first-party event capture from the front-end (fetch or sendBeacon).
+    Body: {profile_id, session_id, events: [{event, ts, ...props}]}. Events land in
+    events.jsonl under SAN_DATA_DIR, tied to the visitor's durable profile id."""
+    raw = await request.body()
+    if len(raw) > _EVENTS_BODY_CAP:   # cap bytes, not just requests (public endpoint)
+        raise HTTPException(status_code=413, detail="Payload too large")
+    try:
+        body = json.loads(raw or b"{}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+    events = body.get("events") or []
+    if not isinstance(events, list) or len(events) > analytics.MAX_BATCH:
+        raise HTTPException(status_code=400, detail="events must be a list (max %d)" % analytics.MAX_BATCH)
+    # Disk I/O + the global profile lock run OFF the event loop so a busy ingest
+    # can never stall chat/websocket/health.
+    loop = asyncio.get_running_loop()
+    n = await loop.run_in_executor(
+        None, analytics.record_events,
+        str(body.get("profile_id") or "")[:64], str(body.get("session_id") or "")[:64],
+        events, request.headers.get("user-agent", ""))
+    return JSONResponse({"ok": True, "accepted": n})
+
+
+@app.get("/api/analytics/summary")
+def analytics_summary(_: None = Depends(require_admin)) -> JSONResponse:
+    return JSONResponse(analytics.summary())
+
+
+@app.get("/api/analytics/profiles")
+def analytics_profiles(_: None = Depends(require_admin)) -> JSONResponse:
+    return JSONResponse({"profiles": analytics.list_profiles()})
+
+
+@app.get("/api/analytics/profile/{profile_id}")
+def analytics_profile(profile_id: str, _: None = Depends(require_admin)) -> JSONResponse:
+    return JSONResponse(analytics.profile_detail(profile_id))
+
+
+@app.get("/api/analytics/export")
+def analytics_export(_: None = Depends(require_admin)):
+    """Raw events.jsonl download — one JSON event per line, ready for a warehouse,
+    spreadsheet import, or a CDP batch upload. Snapshotted under the write lock so a
+    concurrent append can't race the response's Content-Length."""
+    return Response(content=analytics.export_bytes(), media_type="application/x-ndjson",
+                    headers={"Content-Disposition": "attachment; filename=events.jsonl"})
+
+
 # ---- "Book a demo / More information" — intake + email + Google booking link ----
 DEMO_NOTIFY_EMAIL = os.getenv("DEMO_NOTIFY_EMAIL", "chris.featherstone@sanas.ai")
 BOOKING_URL = os.getenv("BOOKING_URL", "https://calendar.app.google/BzRcDMQAKtHvRJfs8")
@@ -598,6 +654,7 @@ class DemoRequest(BaseModel):
     phone: str = ""
     company_size: str = ""
     message: str = ""
+    profile_id: str = ""   # visitor's analytics profile — ties the lead to their event history
 
 
 _EMBED_CACHE: dict = {"done": False, "url": None}
@@ -652,6 +709,13 @@ def demo_book(req: DemoRequest) -> JSONResponse:
     lead["received"] = ts
     DEMO_LEADS.append(lead)
     print(f"[demo-book] lead from {name} <{email}> ({req.company or 'n/a'})", flush=True)
+    # Identity resolution: the anonymous analytics profile becomes a known lead.
+    if req.profile_id:
+        analytics.identify(req.profile_id.strip()[:64],
+                           {"email": email, "name": name, "company": req.company,
+                            "job_title": req.job_title, "phone": req.phone,
+                            "company_size": req.company_size},
+                           source="demo_form")
 
     # 1) internal notification to the owner (reply-To the contact so a reply reaches them)
     notify_body = (f"New demo request from Sanas.AI (More Information).\n\n{detail}\n\n"
@@ -693,6 +757,7 @@ class PartnerRequest(BaseModel):
     region: str = ""
     website: str = ""
     message: str = ""
+    profile_id: str = ""   # visitor's analytics profile — ties the application to their event history
 
 
 @app.post("/api/partner/apply")
@@ -710,6 +775,12 @@ def partner_apply(req: PartnerRequest) -> JSONResponse:
     detail = "\n".join(f"{k}: {v}" for k, v in fields if v)
     PARTNER_LEADS.append({k.lower().replace(" ", "_"): v for k, v in fields} | {"received": ts})
     print(f"[partner] application from {name} <{email}> ({req.company or 'n/a'}, {req.partnership_type or 'n/a'})", flush=True)
+    if req.profile_id:
+        analytics.identify(req.profile_id.strip()[:64],
+                           {"email": email, "name": name, "company": req.company,
+                            "partnership_type": req.partnership_type, "region": req.region,
+                            "website": req.website},
+                           source="partner_form")
 
     notify_ok, notify_err = mailer.send(
         DEMO_NOTIFY_EMAIL, f"New partner application — {name}" + (f", {req.company}" if req.company else ""),
@@ -865,7 +936,7 @@ async def stream(ws: WebSocket):
 
 
 # Serve only the front-end files by name — never the backend source, .env, or vendor/.
-_ALLOWED_STATIC = {"index.html", "app.js", "styles.css", "config.js"}
+_ALLOWED_STATIC = {"index.html", "app.js", "styles.css", "config.js", "admin.html"}
 # no-cache so the browser always revalidates and picks up edits immediately
 _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
