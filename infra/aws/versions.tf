@@ -1,4 +1,4 @@
-# Sani on AWS — Terraform. Provisions the split deploy from DEPLOY_AWS.md:
+# Sanas.AI on AWS — Terraform. Provisions the split deploy from DEPLOY_AWS.md:
 # Amplify (front-end) + one x86-64 EC2 backend behind Caddy (auto-HTTPS), with
 # Secrets Manager (server/.env), S3 (the Sanas Linux SDK tarball), Route 53 DNS,
 # and SES for demo emails.

@@ -12,7 +12,7 @@
      F5  Dual-mode audio: curated 3-scenario showroom + upload probe
      F6  ROI snapshot (3-input)
      F7  Developer quickstart (curl/Python/Node) + sandbox key
-     F8  Human handoff
+     F8  Human handoff (connect with the team via a scheduled demo)
      F9  Session-scoped memory + session UUID (F11)
      F10 Eight-layer debug trace
      F11 Bot self-observability event stream (internal debug drawer)
@@ -1245,245 +1245,6 @@ function liveNode() {
   return root;
 }
 
-/* ---------- Twilio voice handoff (talk to a human / IVR, Sanas in the call) ---------- */
-function twilioConnectNode() {
-  const root = el('div', { class: 'twilio rich' });
-  root.append(
-    el('div', { class: 'pg-title' }, 'Connect by voice'),
-    el('div', { class: 'pg-sub' }, 'Pick how to connect, enter a number, and go. The call audio runs through the Sanas telephony model in real time — you hear the line cleaned mid-call.'));
-  const body = el('div', { class: 'tw-body' }, el('div', { class: 'pg-status' }, 'Checking Twilio…'));
-  root.appendChild(body);
-  fetch(SAN_API + '/api/twilio/config').then(r => r.json()).then(render)
-    .catch(() => { body.innerHTML = ''; body.appendChild(el('div', { class: 'pg-note' }, 'Could not reach the backend Twilio config.')); });
-
-  const statusLine = () => el('div', { class: 'pg-status' });
-
-  // Browser calling only — the phone-callback modes (human / IVR / guided demo /
-  // dial-out) were removed; this surface is a clean in-browser call with live
-  // model on/off + model switching. Mid-call control posts to /api/twilio/toggle.
-
-  function render(cfg) {
-    body.innerHTML = '';
-    if (!cfg.browser_voice) {
-      body.appendChild(el('div', { class: 'pg-note' },
-        'Browser calling isn’t configured yet. Add the Twilio API key/secret + TwiML App SID (TWILIO_API_KEY_SID / TWILIO_API_KEY_SECRET / TWILIO_TWIML_APP_SID) and PUBLIC_BASE_URL to server/.env, then reload.'));
-      return;
-    }
-    body.appendChild(el('div', { class: 'tw-meta' }, `Call in the browser — talk and hear yourself through Sanas in real time${cfg.sanas_in_call ? '' : ' (needs the SDK + audioop to enhance)'}. Flip the model on/off and switch models live, mid-call.`));
-
-    // Pick a model to try (also switches live during a call).
-    const modelSel = el('select', { class: 'pg-langsel tw-model', 'aria-label': 'Sanas model' });
-    fetch(SAN_API + '/api/models').then(r => r.json()).then(d => {
-      (d.models || []).forEach(m => modelSel.appendChild(el('option', { value: m.name }, m.label)));
-      modelSel.value = 'AGENTIC_VI_GT_NC';                       // telephony model by default
-      if (!modelSel.value && d.models && d.models[0]) modelSel.value = d.models[0].name;
-    }).catch(() => {});
-
-    // Optional: dial a number (blank = hear yourself); in-path = the callee hears you cleaned.
-    const phone = el('input', { class: 'tw-phone', type: 'tel', 'aria-label': 'Number to call',
-      placeholder: '+1 206 555 0123 — number to call (blank = hear yourself)' });
-    const inpath = el('input', { type: 'checkbox', id: 'tw-inpath' });
-    const inpathRow = el('label', { class: 'tw-inpath', for: 'tw-inpath' }, inpath,
-      el('span', {}, 'Sanas in-path — the person you call hears your voice cleaned (beta)'));
-
-    // Call controls: Call / Hang-up + a live timer; Model on / Model off mid-stream.
-    const callBtn = el('button', { class: 'pg-input-btn tw-call' }, 'Call');
-    const hangBtn = el('button', { class: 'pg-input-btn tw-hang', disabled: '' }, 'Hang-up');
-    const timer = el('span', { class: 'tw-timer' }, '00:00');
-    const onBtn = el('button', { class: 'live-toggle tw-modelon on', disabled: '' }, 'Model on');
-    const offBtn = el('button', { class: 'live-toggle tw-modeloff', disabled: '' }, 'Model off');
-
-    const st = statusLine();
-    let device = null, conn = null, recorder = null, recChunks = [];
-    let togglePayload = null, timerId = null, t0 = 0;
-
-    // Sample call audio — the real sanas.ai degraded → clean demo clips, so you can
-    // hear the kind of line Sanas fixes before placing a call (like the Playground).
-    const sampleSel = el('select', { class: 'pg-langsel tw-sample', 'aria-label': 'Sample call audio' },
-      el('option', { value: '' }, 'Hear sample call audio…'),
-      ...Object.entries(SCENARIOS).map(([k, s]) => el('option', { value: k }, s.name)));
-    const sampleMount = el('div', { class: 'tw-sample-mount' });
-    sampleSel.addEventListener('change', () => {
-      sampleMount.innerHTML = '';
-      if (sampleSel.value) sampleMount.appendChild(showroomNode(sampleSel.value));
-    });
-
-    // After a browser call, analyze the recording like an uploaded clip:
-    // before/after through the chosen model, spectrogram, and recognition (WER).
-    const recMount = el('div', { class: 'tw-rec' });
-    async function reviewRecording(blob, model) {
-      recMount.innerHTML = '';
-      const status = el('div', { class: 'pg-status busy' }, `Analyzing your call audio through Sanas ${model}…`);
-      recMount.append(el('div', { class: 'tw-rec-h' }, 'Your call recording'), status);
-      try {
-        const res = await processClip(blob, model);
-        recMount.innerHTML = '';
-        recMount.append(
-          el('div', { class: 'tw-rec-h' }, 'Your call recording — before / after, with spectrogram and recognition'),
-          realShowroomNode(res.origBuf, res.procBuf, res.meta, { before: res.origBytes, after: res.procBytes }));
-      } catch {
-        status.classList.remove('busy'); status.textContent = 'Could not analyze the recording.';
-      }
-    }
-
-    // Fetch the real phone-call recording from Twilio (polls — it lands a few seconds
-    // after the call ends), then run it through the analysis like an uploaded clip.
-    async function reviewCallRecording(callSid, model) {
-      recMount.innerHTML = '';
-      const status = el('div', { class: 'pg-status busy' }, 'Waiting for Twilio to finish the call recording…');
-      recMount.append(el('div', { class: 'tw-rec-h' }, 'Call recording'), status);
-      let blob = null;
-      for (let i = 0; i < 20 && !blob; i++) {                 // ~60s of polling
-        try {
-          const r = await fetch(SAN_API + '/api/twilio/recording?call_sid=' + encodeURIComponent(callSid));
-          if (r.ok && (r.headers.get('Content-Type') || '').includes('audio')) { blob = await r.blob(); break; }
-        } catch {}
-        await new Promise(res => setTimeout(res, 3000));
-      }
-      if (!blob) {
-        status.classList.remove('busy');
-        status.textContent = 'Recording not ready yet (it lands a few seconds after the call ends). ';
-        const retry = el('button', { class: 'pg-input-btn' }, 'Check again');
-        retry.addEventListener('click', () => reviewCallRecording(callSid, model));
-        status.appendChild(retry);
-        return;
-      }
-      status.textContent = `Analyzing the call recording through Sanas ${model}…`;
-      try {
-        const res = await processClip(blob, model);
-        recMount.innerHTML = '';
-        recMount.append(
-          el('div', { class: 'tw-rec-h' }, 'Call recording — before / after, with spectrogram and recognition'),
-          realShowroomNode(res.origBuf, res.procBuf, res.meta, { before: res.origBytes, after: res.procBytes }));
-      } catch {
-        status.classList.remove('busy'); status.textContent = 'Could not analyze the recording.';
-      }
-    }
-
-    // Phone-callback modes happen on the user's phone, so the browser can't tell when
-    // the call ends — offer a button to fetch + analyze the recording on demand.
-    function showAnalyzeButton(callSid, model) {
-      recMount.innerHTML = '';
-      const b = el('button', { class: 'pg-input-btn live' }, 'Get & analyze the call recording');
-      b.addEventListener('click', () => reviewCallRecording(callSid, model));
-      recMount.append(el('div', { class: 'tw-rec-h' }, 'Call recording'),
-        el('div', { class: 'pg-il' }, 'After you hang up, fetch the recording and review it like an upload.'), b);
-    }
-
-    // ---- call state: timer + green-while-in-call + which controls are live ----
-    const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-    function startTimer() { t0 = Date.now(); timer.textContent = '00:00'; timerId = setInterval(() => { timer.textContent = fmt(Math.floor((Date.now() - t0) / 1000)); }, 500); }
-    function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
-    function setInCall(on) {
-      callBtn.classList.toggle('in-call', on);          // green while in the call
-      callBtn.disabled = on; hangBtn.disabled = !on;
-      const live = on && !!togglePayload;               // on/off + switch only when Sanas is in-path
-      onBtn.disabled = !live; offBtn.disabled = !live;
-    }
-    function setModelState(en) { onBtn.classList.toggle('on', en); offBtn.classList.toggle('on', !en); }
-    async function postToggle(bodyObj) {
-      if (!togglePayload) return;
-      try {
-        await fetch(SAN_API + '/api/twilio/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...togglePayload, ...bodyObj }) });
-      } catch {}
-    }
-    onBtn.addEventListener('click', async () => { setModelState(true); await postToggle({ enabled: true }); emit({ event: 'twilio_toggle', enabled: true }); });
-    offBtn.addEventListener('click', async () => { setModelState(false); await postToggle({ enabled: false }); emit({ event: 'twilio_toggle', enabled: false }); });
-    modelSel.addEventListener('change', async () => {
-      if (conn && togglePayload) { setModelState(true); await postToggle({ model: modelSel.value, enabled: true }); emit({ event: 'twilio_model_switch', model: modelSel.value }); }
-    });
-
-    async function browserConnect() {
-      if (conn) { try { conn.disconnect(); } catch {} return; }   // already in a call → hang up
-      const to = phone.value.trim();
-      const model = modelSel.value;
-      // hear-yourself / in-path bridge run over <Connect><Stream> (Twilio can't record
-      // those) — capture the local mic for the recording; a plain dial Twilio records.
-      const recordableViaTwilio = !!to && !inpath.checked;
-      let recStream;
-      try { recStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-      catch (e) { st.textContent = 'Microphone blocked — allow mic access for this site and retry. (' + (e.name || e) + ')'; return; }
-      recorder = null; recChunks = [];
-      if (recordableViaTwilio) { recStream.getTracks().forEach(t => t.stop()); }
-      else {
-        try {
-          recorder = new MediaRecorder(recStream);
-          recorder.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
-          recorder.onstop = () => { recStream.getTracks().forEach(t => t.stop()); if (recChunks.length) reviewRecording(new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' }), model); };
-          recorder.start();
-        } catch { recStream.getTracks().forEach(t => t.stop()); recorder = null; }
-      }
-      st.textContent = 'Loading the Voice SDK…';
-      try {
-        await loadTwilioSDK();
-        const t = await (await fetch(SAN_API + '/api/twilio/token')).json();
-        if (!t.ok) { st.textContent = t.detail || 'Token unavailable.'; return; }
-        device = new Twilio.Device(t.token, { logLevel: 'error' });
-        device.on('error', (e) => { st.textContent = 'Device error ' + (e.code || '') + ': ' + (e.message || e); });
-        let params;
-        if (to && inpath.checked) { const bid = 'br-' + uuid(); params = { mode: 'bridge', bridge: bid, To: to, model }; togglePayload = { bridge_id: bid }; }
-        else if (to) { params = { To: to, model, mode: 'dial' }; togglePayload = null; }   // plain dial: no in-path Sanas to toggle live
-        else { params = { model, mode: 'sanas' }; togglePayload = null; }                  // hear-yourself: payload set from CallSid below
-        st.textContent = to ? `Calling ${to}…` : 'Connecting…';
-        conn = await device.connect({ params });
-        const csid = conn.parameters && conn.parameters.CallSid;
-        if (!togglePayload && !to && csid) togglePayload = { call_sid: csid };   // single-leg media on/off + switch
-        setInCall(true); setModelState(true); startTimer();
-        st.textContent = !to ? `In call — hearing yourself through Sanas ${model}. Use Model on / Model off and the model picker live.`
-          : (inpath.checked ? `Bridging to ${to} — they hear your voice cleaned by Sanas ${model} (beta).`
-                            : `In call with ${to} — Sanas ${model} runs on the recorded audio.`);
-        conn.on('error', (e) => { st.textContent = 'Call error: ' + (e.message || e); });
-        conn.on('disconnect', () => {
-          conn = null; togglePayload = null; setInCall(false); stopTimer();
-          if (recordableViaTwilio && csid) { st.textContent = 'Call ended — fetching the recording to analyze…'; reviewCallRecording(csid, model); }
-          else if (recorder && recorder.state !== 'inactive') { st.textContent = 'Call ended — analyzing your recording…'; try { recorder.stop(); } catch {} }
-          else { st.textContent = 'Call ended.'; }
-        });
-      } catch (e) {
-        st.textContent = 'Browser call failed: ' + (e.message || e);
-        try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch {}
-        setInCall(false); stopTimer();
-      }
-    }
-    callBtn.addEventListener('click', browserConnect);
-    hangBtn.addEventListener('click', () => { if (conn) { try { conn.disconnect(); } catch {} } });
-
-    body.append(
-      el('div', { class: 'tw-row' }, el('span', { class: 'tw-toggle-l' }, 'Model:'), modelSel),
-      el('div', { class: 'tw-row' }, phone),
-      inpathRow,
-      el('div', { class: 'tw-row tw-callrow' }, callBtn, hangBtn, timer),
-      el('div', { class: 'tw-row tw-livectrls' }, el('span', { class: 'tw-toggle-l' }, 'Mid-call:'), onBtn, offBtn),
-      el('div', { class: 'tw-row' }, el('span', { class: 'tw-toggle-l' }, 'Sample audio:'), sampleSel),
-      sampleMount, st, recMount);
-  }
-
-  let _sdkP = null;
-  function loadTwilioSDK() {
-    if (window.Twilio && window.Twilio.Device) return Promise.resolve();
-    if (_sdkP) return _sdkP;
-    // sdk.twilio.com returns 403 for direct <script> loads; jsDelivr serves the
-    // same @twilio/voice-sdk UMD build (exposes global Twilio.Device).
-    const urls = [
-      'https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.12.4/dist/twilio.min.js',
-      'https://unpkg.com/@twilio/voice-sdk@2.12.4/dist/twilio.min.js',
-    ];
-    const tryLoad = (i) => new Promise((res, rej) => {
-      if (i >= urls.length) return rej(new Error('SDK load failed'));
-      const s = document.createElement('script');
-      s.src = urls[i];
-      s.onload = () => (window.Twilio && window.Twilio.Device)
-        ? res() : tryLoad(i + 1).then(res, rej);
-      s.onerror = () => tryLoad(i + 1).then(res, rej);
-      document.head.appendChild(s);
-    });
-    _sdkP = tryLoad(0).catch((e) => { _sdkP = null; throw e; });  // allow retry without reload
-    return _sdkP;
-  }
-  return root;
-}
-
 function traceNode() {
   // ingress is a real measured prep latency from the last /api/process call;
   // the rest stay illustrative (the batch path can't measure per-frame first-byte).
@@ -1695,12 +1456,12 @@ function respond(text) {
       sources: [], suggestions: ['What does Sanas do?', 'Play a before/after', 'Talk to a human'], refusal: 'medical' };
   }
 
-  // ---- Human handoff (F8) ----
+  // ---- Human handoff (F8) — connect with the team via a scheduled demo ----
   if (/\b(talk to (a )?human|speak to (someone|sales|a person)|book a demo|schedule|sales rep|account exec)\b/.test(t)) {
     state.ctaTurnsAgo = 0;
-    return { text: "I can connect you by voice — to a specialist or our IVR — and route the call audio through Sanas so the line is cleaned in real time. Pick an option below, or I can hand off with your transcript by email.",
-      sources: [], handoff: true, nodes: [twilioConnectNode()],
-      suggestions: ['Book a callback', 'Keep exploring first'] };
+    return { text: "Happy to connect you with our team. Share a few details and we'll follow up — then pick a time and the calendar invite goes out automatically.",
+      sources: [], handoff: true, nodes: [bookDemoNode()],
+      suggestions: ['What will the demo cover?', 'Run an ROI snapshot', 'Keep exploring first'] };
   }
 
   // ---- Developer / API / sandbox / debug (F7, F10) ----
@@ -1828,7 +1589,7 @@ function addMessage(role, content, extras = {}) {
   }
   (extras.nodes || []).forEach(n => wrap.appendChild(n));
   if (extras.handoff) {
-    wrap.appendChild(el('div', { class: 'privacy-note' }, 'Transcript + detected persona will be attached to the handoff. Uploaded audio is processed in-memory and deleted within 24h by default.'));
+    wrap.appendChild(el('div', { class: 'privacy-note' }, 'Your details go to our team to schedule the demo. Uploaded audio is processed in-memory and deleted within 24h by default.'));
   }
   const msg = el('div', { class: `msg ${role}` });
   if (role === 'san') msg.appendChild(el('div', { class: 'av', html: waveSVG('#0a0a0a') }));
@@ -2096,7 +1857,7 @@ function bookDemoNode() {
       emit({ event: 'demo_requested', email_configured: !!d.email_configured, emailed_notify: !!emailed.notify, embedded: !!embed, recommendation_made: true });
     } catch (err) {
       go.disabled = false; go.textContent = 'Request demo';
-      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again, or use Speak live to reach us directly."));
+      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again in a moment."));
       emit({ event: 'demo_error', error: String(err) });
     }
   });
@@ -2116,7 +1877,7 @@ function openBookDemo() {
     addMessage('san',
       "Happy to set up a live walkthrough. Share a few details and I'll send them to our team — then you pick a time and the calendar invite goes out automatically.",
       { nodes: [bookDemoNode()] });
-    setSuggestions(['What will the demo cover?', 'Run an ROI snapshot', 'Speak live now']);
+    setSuggestions(['What will the demo cover?', 'Run an ROI snapshot', 'How does reconstruction work?']);
   }, 250);
 }
 
@@ -2160,7 +1921,7 @@ function partnerFormNode() {
       emit({ event: 'partner_applied', email_configured: !!d.email_configured, recommendation_made: true });
     } catch (err) {
       go.disabled = false; go.textContent = 'Apply to partner';
-      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again, or use Speak live to reach us directly."));
+      out.replaceChildren(el('div', { class: 'demo-err' }, "Couldn't submit just now — please try again in a moment."));
       emit({ event: 'partner_error', error: String(err) });
     }
   });
@@ -2331,8 +2092,6 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Play a before/after'), 300); }));
   document.querySelectorAll('[data-open-playground]').forEach(b =>
     b.addEventListener('click', () => { setTimeout(openPlayground, 150); }));
-  document.querySelectorAll('[data-open-person]').forEach(b =>
-    b.addEventListener('click', () => { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 200); }));
   document.querySelectorAll('[data-open-demo]').forEach(b =>
     b.addEventListener('click', () => openBookDemo()));
 
@@ -2441,11 +2200,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const personaParam = new URLSearchParams(location.search).get('persona');
   if (personaParam && PERSONAS[personaParam]) setPersona(personaParam, true);
 
-  // deep-link: ?open=chat|playground|connect opens straight to a view (handy for
+  // deep-link: ?open=chat|playground|demo opens straight to a view (handy for
   // shareable links and reproducible screenshots)
   const open = new URLSearchParams(location.search).get('open');
   if (open === 'playground') setTimeout(openPlayground, 200);
-  else if (open === 'connect' || open === 'person') { openPanel(); setTimeout(() => handleUserInput('Speak to a person'), 300); }
-  else if (open === 'demo' || open === 'book') openBookDemo();
+  else if (open === 'demo' || open === 'book' || open === 'connect' || open === 'person') openBookDemo();
   else if (open === 'chat' || open === 'san') openPanel();
 });

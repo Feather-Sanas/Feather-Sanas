@@ -53,7 +53,6 @@ _load_dotenv()
 
 import analytics  # noqa: E402  (after dotenv load; reads SAN_DATA_DIR at import)
 import asr  # noqa: E402
-import auth  # noqa: E402
 import doc_index  # noqa: E402
 import llm  # noqa: E402
 import mailer  # noqa: E402
@@ -62,7 +61,6 @@ import response_cache  # noqa: E402  (Claude reply cache; reads env at import)
 import webindex  # noqa: E402
 from ratelimit import rate_limit, events_rate_limit  # noqa: E402
 from sanas_client import client, MODEL_SAMPLE_RATES  # noqa: E402
-from twilio_routes import router as twilio_router  # noqa: E402
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024   # generous cap; spec limits clips to ~2 min
 # In Docker the front-end lives in a dedicated dir (WEB_DIR env); for local dev
@@ -74,7 +72,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
-app.include_router(twilio_router)   # /api/twilio/* (human handoff + IVR via Twilio)
 
 
 @app.on_event("startup")
@@ -108,53 +105,6 @@ def health() -> JSONResponse:
     h["rate_limit"] = ratelimit.info()
     # analytics totals/paths are admin-only (GET /api/analytics/summary) — not leaked here
     return JSONResponse(h)
-
-
-# ---- Sign-in (email-token) for the mobile app ------------------------------
-class AuthRequest(BaseModel):
-    email: str = ""
-
-
-class AuthVerify(BaseModel):
-    token: str = ""
-
-
-@app.post("/api/auth/request")
-def auth_request(req: AuthRequest, _rl: None = Depends(rate_limit)) -> JSONResponse:
-    """Email a single-use sign-in token to an address in the allowed domain."""
-    if not auth.required():
-        return JSONResponse({"ok": True, "auth_required": False})
-    email = req.email.strip()
-    if not auth.email_ok(email):
-        raise HTTPException(status_code=400, detail=f"Use your @{auth.domain()} email address.")
-    tok = auth.issue_login(email)
-    sent, err = mailer.send(
-        email, "Your Sanas.AI Call sign-in token",
-        f"Your Sanas.AI Call sign-in token is:\n\n    {tok}\n\n"
-        f"Enter it in the app to sign in. It expires in {auth.CODE_TTL // 60} minutes "
-        f"and can be used once. If you didn't request this, you can ignore this email.")
-    if auth.DEV_ECHO:
-        print(f"[auth] sign-in token for {email}: {tok}", flush=True)
-    if not sent and not auth.DEV_ECHO:
-        raise HTTPException(status_code=503, detail=f"Could not send email: {err}")
-    return JSONResponse({"ok": True})
-
-
-@app.post("/api/auth/verify")
-def auth_verify(req: AuthVerify) -> JSONResponse:
-    """Exchange a login token for a session bearer the app stores + sends."""
-    result = auth.verify_login(req.token)
-    if result is None:
-        raise HTTPException(status_code=401, detail="That token is invalid or expired.")
-    session, email = result
-    return JSONResponse({"ok": True, "token": session, "email": email})
-
-
-@app.post("/api/auth/signout")
-def auth_signout(authorization: str | None = Header(default=None),
-                 x_sani_auth: str | None = Header(default=None, alias="X-Sanas.AI-Auth")) -> JSONResponse:
-    auth.sign_out(auth.token_from_headers(authorization, x_sani_auth))
-    return JSONResponse({"ok": True})
 
 
 def _last_user(msgs: list[dict]) -> str:
@@ -455,8 +405,7 @@ async def process(file: UploadFile = File(...), model: str | None = None,
     # ffmpeg decode (subprocess) and the SDK's real-time-paced process() are BLOCKING
     # and can run for the full clip duration (up to SAN_MAX_CLIP_S). Run them on a
     # worker thread, never on the event loop — otherwise a single clip stalls every
-    # other request, including the Twilio voice webhook (Twilio then 502s → the caller
-    # hears "an application error has occurred").
+    # other request (chat, the live-mic WebSocket, health).
     loop = asyncio.get_running_loop()
     t0 = time.perf_counter()
     samples = await loop.run_in_executor(None, _decode_to_pcm, raw, sr)
@@ -823,7 +772,7 @@ async def asr_compare(
         if len(raw) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="file too large")
         # ffmpeg decode + Whisper are blocking — keep them off the event loop so an
-        # ASR run can't stall the Twilio voice webhook (→ 502 / "application error").
+        # ASR run can't stall the event loop and block other requests.
         pcm = await loop.run_in_executor(None, _decode_to_pcm, raw, sr)
         return await loop.run_in_executor(None, asr.transcribe, pcm, sr)
 

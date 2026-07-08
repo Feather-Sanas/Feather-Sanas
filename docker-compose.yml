@@ -1,6 +1,6 @@
 # Single-host deploy: uvicorn (the Sanas.AI backend) behind Caddy for automatic HTTPS.
 # Caddy terminates TLS and reverse-proxies to the backend over the internal network,
-# transparently upgrading WebSockets (live mic + Twilio media streams) with no idle
+# transparently upgrading the live-mic WebSocket (/api/stream) with no idle
 # timeout. Run with:  SITE_ADDRESS=sani.example.com docker compose up -d --build
 services:
   san:
@@ -9,7 +9,7 @@ services:
       dockerfile: server/Dockerfile
     platform: linux/amd64        # Sanas SDK is x86-64; emulated on Apple Silicon
     env_file:
-      - server/.env              # SANAS_*/ANTHROPIC_*/TWILIO_* + PUBLIC_BASE_URL
+      - server/.env              # SANAS_* / ANTHROPIC_* / SMTP_* / RAG_ADMIN_PASSWORD
     expose:
       - "8000"                   # internal only — Caddy reaches it as http://san:8000
     ports:

@@ -12,8 +12,8 @@ Env:
   SAN_RATE_WINDOW   window length in seconds      (default 60)
 
 Wire it onto a route with  Depends(rate_limit)  — it raises HTTP 429 (with a
-Retry-After header) when an IP exceeds the limit. Twilio webhooks and the
-static / health routes are intentionally NOT rate-limited.
+Retry-After header) when an IP exceeds the limit. The static / health routes
+are intentionally NOT rate-limited.
 """
 from __future__ import annotations
 

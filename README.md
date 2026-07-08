@@ -7,7 +7,7 @@ This build implements **Phase 1 (MVP)**: trusted education, a recommendation eng
 persona-aware routing, developer tooling, and self-observability — plus a **real
 Sanas SDK integration** for live audio processing on uploaded clips.
 
-![Sanas.AI architecture — the browser, the secret-holding FastAPI backend, and the external services (Sanas Cloud, Anthropic, Whisper, the sanas.ai index, and Twilio)](docs/architecture.svg)
+![Sanas.AI architecture — the browser, the secret-holding FastAPI backend, and the external services (Sanas Cloud, Anthropic, Whisper, and the sanas.ai index)](docs/architecture.svg)
 
 > 📐 **Architecture & diagrams:** see [ARCHITECTURE.md](ARCHITECTURE.md) for the system
 > diagram, component map, API surface, and the chat / upload / live-mic / ASR flows.
@@ -23,10 +23,10 @@ Sanas SDK integration** for live audio processing on uploaded clips.
 |---|---|
 | ![Landing — the sanas.ai-styled marketing surface Sanas.AI lives on](docs/examples/01-landing.png) | ![Sanas.AI consultant — persona dropdown, typed opening, suggestions](docs/examples/02-consultant-chat.png) |
 | **Landing** — the brand-accurate marketing surface | **Sanas.AI** — persona dropdown, typed opening, suggestions |
-| ![Playground — capability and model dropdowns, record/upload, test-all](docs/examples/03-playground.png) | ![Connect by voice — one number field, action dropdown, model picker](docs/examples/04-connect-by-voice.png) |
-| **Playground** — capability + model dropdowns, record/upload, test-all | **Connect by voice** — one field, action dropdown, model picker |
+| ![Playground — capability and model dropdowns, record/upload, test-all](docs/examples/03-playground.png) | |
+| **Playground** — capability + model dropdowns, record/upload, test-all | |
 
-> Tip: deep-link straight to a view with `?open=chat`, `?open=playground`, or `?open=connect`.
+> Tip: deep-link straight to a view with `?open=chat`, `?open=playground`, or `?open=demo`.
 
 ## Two ways to run
 
@@ -90,7 +90,6 @@ processing). The rest of the app (chat, curated before/after demos, RAG) still w
 | `server/mailer.py` | Tiny SMTP sender for the "More Information / book a demo" flow (creds in `.env`; no-ops gracefully when unset) |
 | `server/sanas_client.py` | The only code that talks to `sanas_remote_sdk` (RemoteSDK → AudioProcessor → ProcessSamples); when the SDK/creds are absent, processing is reported unavailable (no mock) |
 | `server/llm.py` | Sanas.AI's conversational brain — Claude via the Anthropic SDK (cached system prompt + per-persona register); falls back to the rule engine with no key |
-| `server/twilio_routes.py` | Optional voice layer: IVR, human handoff, dial-in **in-path bridge**, DTMF model switching (see [TWILIO_SETUP.md](TWILIO_SETUP.md)) |
 | `server/webindex.py` + `server/web_index.json` | Lexical retrieval over the indexed sanas.ai content (incl. `/science`) that grounds chat answers and supplies citations |
 | `server/doc_index.py` + `server/rag_store.json` | **Document RAG** — parses uploaded PDF/DOCX/TXT/MD, chunks + lexically indexes them (persisted to disk), and grounds chat answers in the user's own material (`rag_store.json` is git-ignored runtime data) |
 | `server/asr.py` | faster-whisper transcription + from-scratch word-level WER (optional dependency) |
@@ -248,13 +247,13 @@ Sanas.AI **defaults to "Just looking"** — opening the panel does not auto-swit
 based on which marketing section is in view. The persona changes only when the user picks
 it in the dropdown, types something that classifies them, or arrives via an explicit
 `?persona=<key>` share link (e.g. `?persona=buyer_telco`, which also primes the matching
-ROI model). The dropdown choice always wins. (`?open=chat|playground|connect|demo` deep-links
+ROI model). The dropdown choice always wins. (`?open=chat|playground|demo` deep-links
 open straight to a view.)
 
 ## More Information — book a demo (intake → email → calendar)
 
-The **More Information** button in the persona bar (next to *Test a model* and *Speak
-live*) runs a booking flow that mirrors [sanas.ai/book-demo](https://www.sanas.ai/book-demo):
+The **More Information** button in the persona bar (next to *Test a model*) runs a
+booking flow that mirrors [sanas.ai/book-demo](https://www.sanas.ai/book-demo):
 
 1. **Intake** — a form collects name, work email, company, job title, phone, company
    size, and what they're trying to solve (`POST /api/demo/book`).
@@ -288,18 +287,6 @@ Wyndham (50% ↑ sales), Telecom → cable & internet provider. The story is als
 retrieval** so chat answers can cite the case study.
 For Gmail SMTP use an **App Password** (not the account password); see `server/.env.example`.
 
-## Telephony (Twilio) — talk to a human / in-path bridge
-
-An optional voice layer connects a caller to a human, an IVR, or another phone, with
-**Sanas on the call** and mid-call model switching via DTMF. One unified picker takes a
-number and a mode (talk to a human / IVR / hear Sanas / talk in the browser), with a
-**model dropdown for every mode**. You can preview **sample bad audio** (the real
-sanas.ai degraded→clean clips) before calling, and the **call is recorded** (Twilio
-server-side) so you can fetch it afterward and run it through the same before/after +
-spectrogram + ASR analysis as an uploaded clip. The flagship demo is the
-**dial-in bridge**: call the Twilio number, key a destination, and your voice is
-cleaned by Sanas in-path before the other party hears it. Setup, the verified-number
-**trial limitation**, and the go-live checklist are in **[TWILIO_SETUP.md](TWILIO_SETUP.md)**.
 
 ## Brand fidelity (Sanas Brand Guidelines v1.0, Oct 2025)
 
@@ -365,7 +352,7 @@ no engine or prompt change ships if a golden eval fails.
 | F5+ ASR recognition compare | "Analyze recognition" runs a real local ASR (faster-whisper) on before/after — true **WER delta vs the clean source** for curated clips, recognition-confidence delta for uploads |
 | F6 ROI snapshot | **Persona-aware** directional estimate with disclaimer: **Contact center** (Accent-Translation AHT reduction → agent-hours + $ saved, grounded in published 15% AHT / 18% CSAT / 22% FCR) and **Telco / carrier** (churn-prevention + ARPU-uplift → retained + incremental revenue). A toggle switches models; the active persona picks the default |
 | F7 Developer quickstart | Real `sanas_remote_sdk` init + `ProcessSamples`, this app's `/api/process` curl/JS, live backend status |
-| F8 Human handoff | "Speak live" (transcript + detected-persona attachment) **and "More Information"** — a book-a-demo intake that emails the lead to the owner + a confirmation to the contact (SMTP), then routes to the Google booking link for the invite |
+| F8 Human handoff | **"More Information"** — a book-a-demo intake that emails the lead to the owner + a confirmation to the contact (SMTP), then routes to the Google booking link for the invite. "Talk to a human" in chat routes here too. |
 | F9 Session memory + UUID | Session-scoped history; session UUID exposed (Tier-0 pattern) |
 | F10 Eight-layer trace | client→transport→ingress→queue→inference→ASR→return→playback; **ingress + processing timings are measured live** from the last `/api/process` call, rest illustrative |
 | F11 Self-observability | Per-turn event stream (§7.8 schema) in the internal `⌗` drawer (SSO-gated in prod) |

@@ -88,7 +88,7 @@ ASCII fallback:
 | Component | File | Responsibility |
 |---|---|---|
 | **Front-end shell** | `index.html`, `styles.css` | Marketing surface + the Sanas.AI chat panel; brand palette, Sanas Toggle, Sound-Wave mark. |
-| **Front-end app** | `app.js` | Rule engine (retrieval, **8-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security / **Partner** — plus an **industry** dropdown (Healthcare / Financial Services / Retail / Travel / **Telecom**), skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT, **Connect-by-voice** with sample bad-audio + **call recording → upload-style analysis**), Web-Audio capture/playback, ASR/chat clients. |
+| **Front-end app** | `app.js` | Rule engine (retrieval, **8-persona** classify/dropdown — Curious / Help / CX / Telco / Developer / Data-Scientist / IT-Security / **Partner** — plus an **industry** dropdown (Healthcare / Financial Services / Retail / Travel / **Telecom**), skeptic, guardrails), **inline-link rendering** of Claude's markdown citations, rich UI nodes (recommendation, audio showroom playing the **real sanas.ai clips**, ROI, code, 8-layer trace, **Playground**, **live mic**, uploaded-clip **model picker** + client-side **spectrogram** STFT), Web-Audio capture/playback, ASR/chat clients. |
 | **API + router** | `server/main.py` | All HTTP/WS endpoints; loads `.env`; serves only the 3 front-end files (no source/.env/vendor); ingress quality probe; clip-length cap. |
 | **Sanas SDK client** | `server/sanas_client.py` | The only code touching `sanas_remote_sdk`. Batch `process()` (real-time-paced + drain) and `StreamSession` (persistent processor for live). When the SDK/creds are absent, processing is unavailable (`process()` raises `SanasUnavailable`) — no mock. |
 | **Chat brain** | `server/llm.py` | Claude via the Anthropic SDK. Prompt-cached system prompt (KB + voice + guardrails) + per-persona block. Formats retrieved context as either sanas.ai pages (inline-linked) or **uploaded documents** (cited by filename). Returns `None` to signal the client to fall back to the rule engine. |
@@ -319,28 +319,7 @@ graph TD
 
 ---
 
-## Addendum — telephony (Twilio) & grounded citations (sanas.ai index)
-
-### Twilio voice (`server/twilio_routes.py`)
-Connect a caller to a human / IVR / another phone, with Sanas on the call.
-
-| Endpoint | Role |
-|---|---|
-| `GET/POST /api/twilio/voice` | TwiML. Inbound (no mode) → **dial-in prompt**; `mode=ivr\|human\|sanas\|dial\|bridge\|bridgeleg` |
-| `POST /api/twilio/dialin-connect` | inbound: gather the keyed number → bridge to it |
-| `WS /api/twilio/media` | single-leg Media Stream: μ-law 8 kHz → Sanas `ProcessSamples` → back |
-| `WS /api/twilio/bridge` | **two-leg in-path bridge**: caller→Sanas→callee; relays callee→caller; reads **DTMF** to switch model / toggle; resamples 8 kHz ↔ 16 kHz models; if the callee dial fails (e.g. 21219 unverified on trial) it **redirects the caller to a spoken reason + hangup** instead of dead air |
-| `POST /api/twilio/toggle {call_sid\|bridge_id, enabled?, model?}` | mid-call control: Sanas on/off **and live model switch** (recreates the processor without dropping the call); drives the browser call's in-app on/off + model picker |
-| `GET /api/twilio/token` · `POST /api/twilio/call` | browser Voice access token · REST click-to-call |
-| `GET /api/twilio/config` | which paths are configured |
-
-```
-Caller ─PSTN/WebRTC─ Twilio ─Media Streams (μ-law 8k)─ /api/twilio/bridge
-                                                          caller audio → Sanas(model) → callee
-                                                          DTMF 1/2/3 → switch model · 0 → off
-```
-The bridge is the only way Sanas is truly *in-path* on a two-party call (`<Connect><Stream>`
-both legs); a `<Dial>` fork can run/measure the model but can't re-inject. See `TWILIO_SETUP.md`.
+## Addendum — grounded citations (sanas.ai index)
 
 ### Grounded citations (`server/webindex.py` + `scripts/index_site.py`)
 `scripts/index_site.py` crawls **sanas.ai** (product/industry/dev pages, the **`/science`
@@ -406,11 +385,9 @@ ROI model). The dropdown pick always wins; `?open=` opens straight to a view.
 
 ### File-map additions
 ```
-server/twilio_routes.py   # Twilio voice: IVR, dial-in, media bridge, DTMF model switch
 server/webindex.py        # lexical retrieval over the indexed site
 server/web_index.json     # indexed sanas.ai content (public; regenerate with the script)
 server/doc_index.py       # document RAG: parse/chunk/index uploaded PDF/DOCX/TXT/MD
 server/rag_store.json     # persisted uploaded-doc store (runtime data; git-ignored)
 scripts/index_site.py     # crawler → web_index.json
-TWILIO_SETUP.md           # go-live checklist for the telephony paths
 ```

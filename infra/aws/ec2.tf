@@ -55,7 +55,7 @@ resource "aws_instance" "backend" {
   depends_on = [aws_iam_role_policy.instance]
 }
 
-# Stable public IP so the DNS A record and Twilio URLs survive stop/start.
+# Stable public IP so the DNS A record survives stop/start.
 resource "aws_eip" "backend" {
   domain = "vpc"
   tags   = { Name = "${var.project}-backend" }
