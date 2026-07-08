@@ -184,7 +184,10 @@ bare URLs are auto-linked too), and the same pages also appear as **clickable so
 chips** under the answer. Retrieval is intent-biased: the **Help** persona and any
 **support/how-to question** (install, configure, integrate, troubleshoot, reset password,
 …) prefer the help center (`prefer="help.sanas.ai"`); the **Data Scientist** persona
-prefers the science articles (`prefer="/science"`). Re-index anytime:
+prefers the science articles (`prefer="/science"`). Existing-customer/support intents
+("I'm an existing customer", "open a ticket", "contact support") render a **Sanas Support
+Portal card** that embeds and links [support.sanas.ai](https://support.sanas.ai/support/home).
+Re-index anytime:
 
 ```bash
 server/.venv310/bin/python scripts/index_site.py   # refreshes web_index.json (public content)
@@ -344,7 +347,7 @@ no engine or prompt change ships if a golden eval fails.
 | Spec | Implemented |
 |------|-------------|
 | F1 Grounded Q&A + sources | Lexical retrieval over the ~220-page sanas.ai index **and uploaded documents (RAG)**; every answer shows source chips (site links + "from your documents") |
-| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown (default **Just looking**): Help / CX buyer / Telco-Carrier / Developer / Data Scientist / IT-Security / **Partner**. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help → help-desk steps grounded in help.sanas.ai**; **Partner → reseller/ISV/referral/SI programs grounded in [/partners](https://www.sanas.ai/partners), with an in-chat partner-application form**). A second **industry** dropdown (Healthcare / Financial Services / Retail / Travel & Hospitality / **Telecom**) sets the vertical — Sanas.AI frames examples/ROI for it and grounds answers in that industry's sanas.ai page |
+| F2 Persona-aware register | Auto-detect (intent) + an explicit dropdown (default **Just looking**): Help / Support, CX buyer, Telco / Carrier, Developer, Data Scientist, IT / Security, **Partner**. Each gets its own register (e.g. telco → MOS/PESQ, codecs, in-path latency; data scientist → STFT/MFCC, WER vs MOS/PESQ, science-article grounding; **Help / Support → help-desk steps grounded in help.sanas.ai, plus a Sanas Support Portal card (embeds/links support.sanas.ai/support/home) for existing customers who need to open a ticket**; **Partner → reseller/ISV/referral/SI programs grounded in [/partners](https://www.sanas.ai/partners), with an in-chat partner-application form**). A second **industry** dropdown (Healthcare / Financial Services / Retail / Travel & Hospitality / **Telecom**) sets the vertical — Sanas.AI frames examples/ROI for it and grounds answers in that industry's sanas.ai page |
 | §3.4 Skeptic stance | Orthogonal per-turn score; triggers "showroom-first" behavior on any persona |
 | F3 Speech Science Educator | Acoustic Reconstruction + Dual-Decoder explanations, calibrated |
 | F4 Recommendation engine | Decision tree → product cards w/ rationale; handles compound challenges |

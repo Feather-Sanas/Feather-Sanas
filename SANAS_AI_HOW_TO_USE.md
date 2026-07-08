@@ -42,6 +42,7 @@ Click the circular Sanas icon in the bottom-right corner of the page. The chat p
 Click the **"Just looking"** dropdown to choose who you are. Sanas.AI's language, depth, and examples change immediately.
 
 - **Just looking** — accessible, general-purpose tone (the default)
+- **Help / Support** — help-desk register: install/setup, dialer integration, and audio/mic troubleshooting grounded in the Sanas help center. Existing customers can say so (or click **I'm an existing customer**) to get a **Sanas Support Portal** card — submit a ticket in-panel or open [support.sanas.ai](https://support.sanas.ai/support/home) in a new tab.
 - **CX / Contact Center buyer** — focuses on AHT, CSAT, agent experience metrics
 - **Telco / Carrier** — uses MOS/PESQ, codec latency, in-path deployment language
 - **IT / Security** — emphasizes data handling, Zero-Knowledge processing, compliance posture

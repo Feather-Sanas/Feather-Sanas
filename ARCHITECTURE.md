@@ -336,7 +336,9 @@ The **Data Scientist** persona passes `prefer="/science"` (grounds answers in th
 science write-ups — 8→16 kHz upscaling, VAD, ASR-optimized NC). The **Help** persona and
 **support/how-to questions** (detected by keywords — install, configure, integrate,
 troubleshoot, reset, audio, dialer, …) pass `prefer="help.sanas.ai"`, so Sanas.AI answers
-from and links to the real help docs. The audio showroom's before/after clips are the **real sanas.ai demo audio**
+from and links to the real help docs. Existing-customer/support intents ("I'm an existing
+customer", "open a ticket", "contact support") instead render a **Sanas Support Portal card**
+that embeds and links `support.sanas.ai/support/home`. The audio showroom's before/after clips are the **real sanas.ai demo audio**
 streamed from the Sanas media CDN (synth fallback if unreachable).
 
 ```
