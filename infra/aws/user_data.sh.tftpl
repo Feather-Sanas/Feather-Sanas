@@ -19,7 +19,7 @@ apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 
-# Feather-Sanas is a PUBLIC repo, so an unauthenticated clone works. For a private
+# The repo is PUBLIC, so an unauthenticated clone works. For a private
 # repo, supply a token in the URL (from Secrets Manager) or a deploy key here.
 APP_DIR=/opt/sani
 if [ ! -d "$APP_DIR/.git" ]; then

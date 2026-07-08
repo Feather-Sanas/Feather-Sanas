@@ -57,7 +57,7 @@ variable "key_pair_name" {
 variable "github_repository" {
   description = "HTTPS Git URL the EC2 box clones and Amplify connects to."
   type        = string
-  default     = "https://github.com/Feather-Sanas/Feather-Sanas"
+  default     = "https://github.com/Feather-Sanas/Sanas-Chatbot"
 }
 
 variable "github_branch" {
