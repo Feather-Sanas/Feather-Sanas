@@ -724,8 +724,8 @@ const OPENINGS = {
     suggestions: ['Show the SDK code', 'Show the 8-layer trace', 'Upload a clip to process', 'Latency budget'] },
   data_scientist: { text: "Hi, I'm your Sanas Speech AI specialist. Coming from the Science page, so I'll talk shop: Sanas reconstructs the signal with a dual-decoder generative model rather than filtering, scored as WER for intelligibility and MOS/PESQ against clean references. Want the eval methodology, the architecture, or the science write-ups?",
     suggestions: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'] },
-  help: { text: "Hi, I'm your Sanas Speech AI specialist. I can pull the right article from the Sanas help center. What do you need — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access?",
-    suggestions: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'] },
+  help: { text: "Hi, I'm your Sanas Speech AI specialist. I can pull the right article from the Sanas help center — installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio/mic issue, or portal access. Already a Sanas customer? I can take you straight to our support team.",
+    suggestions: ['Install the Sanas app', 'Fix audio or mic issues', 'Reset my portal password', "I'm an existing customer"] },
   partner: { text: "Hi, I'm your Sanas Speech AI specialist. Looking to partner with Sanas? We run reseller, technology/ISV, referral, and SI programs. Tell me your model and I'll point you to the right program — and you can apply right here.",
     suggestions: ['Apply to partner', 'Partner program types', 'How does co-sell work?', 'Integration / API'] },
 };
@@ -1456,6 +1456,18 @@ function respond(text) {
       sources: [], suggestions: ['What does Sanas do?', 'Play a before/after', 'Talk to a human'], refusal: 'medical' };
   }
 
+  // ---- Existing-customer support → Sanas Support Portal ----
+  // Match genuine current-customer / support-ticket intent only. Require a
+  // first-person "existing/current customer" self-ID (not CX job titles like
+  // "customer experience", nor "our current customer base"), and exclude
+  // "customer of <competitor>". Support-noun triggers are ticket/portal-specific
+  // so "customer support" (a CX outcome) and "support case studies" don't match.
+  if (/\b((i'?m|i am|we'?re|we are) (an? )?(existing|current) (sanas )?customers?(?! of\b)|already (an? )?(sanas )?customers?|open (a|another) (support )?ticket|(raise|log|submit|file) (a |an |another )?(support )?ticket|support (ticket|portal)|contact (sanas )?support|help ?desk)\b/.test(t)) {
+    return { text: "If you're already a Sanas customer and need a hand, our support team can help. Submit a request to the Sanas Support Portal right here, or open it in a new tab.",
+      sources: [], nodes: [supportNode()],
+      suggestions: ['Install the Sanas app', 'Fix audio or mic issues', 'Talk to a human'] };
+  }
+
   // ---- Human handoff (F8) — connect with the team via a scheduled demo ----
   if (/\b(talk to (a )?human|speak to (someone|sales|a person)|book a demo|schedule|sales rep|account exec)\b/.test(t)) {
     state.ctaTurnsAgo = 0;
@@ -1881,6 +1893,29 @@ function openBookDemo() {
   }, 250);
 }
 
+/* ---------- Existing-customer support (Sanas Support Portal) ---------- */
+/* For visitors who are already Sanas customers: submit a ticket to the real
+   Sanas Support Portal, embedded in-panel (like the demo calendar), with an
+   open-in-new-tab link so it works even if the portal refuses to be framed. */
+const SUPPORT_URL = 'https://support.sanas.ai/support/home';
+function supportNode() {
+  emit({ event: 'support_shown' });
+  const openLink = el('a',
+    { class: 'roi-go support-open', href: SUPPORT_URL, target: '_blank', rel: 'noopener noreferrer' },
+    'Open the Sanas Support Portal →');
+  openLink.addEventListener('click', () => emit({ event: 'support_portal_opened', url: SUPPORT_URL }));
+  const frame = el('iframe',
+    { class: 'support-embed', src: SUPPORT_URL, title: 'Sanas Support Portal',
+      loading: 'lazy', referrerpolicy: 'no-referrer-when-downgrade' });
+  const fallback = el('a',
+    { class: 'demo-cal-link', href: SUPPORT_URL, target: '_blank', rel: 'noopener noreferrer' },
+    'Portal not loading here? Open it in a new tab →');
+  return el('div', { class: 'support-card' },
+    el('div', { class: 'support-intro' },
+      "Already a Sanas customer and need a hand? Submit a request to our support team below, or open the full portal in a new tab."),
+    openLink, frame, fallback);
+}
+
 /* ---------- Partner application (mirrors sanas.ai/partner-form) ---------- */
 function partnerFormNode() {
   const f = {};
@@ -2109,7 +2144,7 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_telco: "Understood — I'll talk carrier-grade. We run in-path on the media stream, narrowband or wideband, and lift perceived voice quality (MOS/PESQ) without adding meaningful latency. Are you looking at the access side, an SBC/SIP-trunk deployment, or call-center termination?",
       buyer_it: "Understood. I'll focus on architecture and compliance. Want the Dual-Decoder walkthrough, deployment topology, or the certification list first?",
       data_scientist: "Great — I'll talk shop. Sanas reconstructs the signal with a dual-decoder generative model rather than filtering it; we score WER for intelligibility and MOS/PESQ for perceived quality against clean references on held-out sets. The Sanas science write-ups (sanas.ai/science) cover the architecture, VAD, ASR-optimized NC, and 8→16 kHz upscaling. Want the eval methodology, the model architecture, or the science articles?",
-      help: "Happy to help — I'll pull the right article from the Sanas help center. What do you need: installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio or microphone issue, or portal/account access?",
+      help: "Happy to help — I'll pull the right article from the Sanas help center: installing the app, setting up your dialer (Zoom, Genesys, Avaya, Teams…), an audio or microphone issue, or portal/account access. Already a Sanas customer? Say so and I'll take you straight to our support team.",
       partner: "Great — let's talk partnership. Sanas runs reseller, technology/ISV, referral, and system-integrator programs ([partners](https://www.sanas.ai/partners)). Tell me how you'd work with us, or apply right here and our partnerships team follows up.",
       curious: "No problem — I'll keep it plain. The fastest way to get it is to hear it. Want a before/after, or a one-line explanation of what we do?",
     }[p];
@@ -2121,7 +2156,7 @@ document.addEventListener('DOMContentLoaded', () => {
       buyer_telco: ['How does it run in-path?', 'Churn + ARPU ROI', 'MOS lift over G.711', 'Latency budget per leg'],
       buyer_it: ['Walk me through Dual-Decoder', 'Data residency for EU', 'List certifications'],
       data_scientist: ['Read the Sanas science articles', 'Reconstruction vs filtering', 'WER / MOS methodology', 'Upload a clip to score'],
-      help: ['Install the Sanas app', 'Integrate with my dialer', 'Fix audio or mic issues', 'Reset my portal password'],
+      help: ['Install the Sanas app', 'Fix audio or mic issues', 'Reset my portal password', "I'm an existing customer"],
       partner: ['Partner program types', 'How does co-sell work?', 'Integration / API'],
       curious: ['What does Sanas do?', 'Play a before/after'],
     }[p];
